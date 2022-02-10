@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,7 +8,6 @@
 #include <stdbool.h>
 #include <math.h>
 #include <esp_types.h>
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -30,8 +29,7 @@
 #include "esp_private/gdma.h"
 #endif
 
-#include "soc/rtc.h"
-
+#include "soc/clk_ctrl_os.h"
 #include "esp_intr_alloc.h"
 #include "esp_err.h"
 #include "esp_check.h"
@@ -84,8 +82,8 @@ typedef struct {
     i2s_port_t i2s_num;         /*!< I2S port number*/
     int queue_size;             /*!< I2S event queue size*/
     QueueHandle_t i2s_queue;    /*!< I2S queue handler*/
-    int dma_buf_count;          /*!< DMA buffer count, number of buffer*/
-    int dma_buf_len;            /*!< DMA buffer length, length of each buffer*/
+    int dma_desc_num;          /*!< DMA buffer count, number of buffer*/
+    int dma_frame_num;            /*!< DMA buffer length, length of each buffer*/
     uint32_t last_buf_size;     /*!< DMA last buffer size */
     i2s_dma_t *tx;              /*!< DMA Tx buffer*/
     i2s_dma_t *rx;              /*!< DMA Rx buffer*/
@@ -348,27 +346,33 @@ esp_err_t i2s_set_pin(i2s_port_t i2s_num, const i2s_pin_config_t *pin)
 static bool IRAM_ATTR i2s_dma_rx_callback(gdma_channel_handle_t dma_chan, gdma_event_data_t *event_data, void *user_data)
 {
     i2s_obj_t *p_i2s = (i2s_obj_t *) user_data;
-    portBASE_TYPE high_priority_task_awoken = 0;
-    BaseType_t ret = 0;
+    portBASE_TYPE need_awoke = 0;
+    portBASE_TYPE tmp = 0;
     int dummy;
     i2s_event_t i2s_event;
     uint32_t finish_desc;
 
     if (p_i2s->rx) {
         finish_desc = event_data->rx_eof_desc_addr;
+        i2s_event.size = ((lldesc_t *)finish_desc)->size;
         if (xQueueIsQueueFullFromISR(p_i2s->rx->queue)) {
-            xQueueReceiveFromISR(p_i2s->rx->queue, &dummy, &high_priority_task_awoken);
-        }
-        ret = xQueueSendFromISR(p_i2s->rx->queue, &(((lldesc_t *)finish_desc)->buf), &high_priority_task_awoken);
-        if (p_i2s->i2s_queue) {
-            i2s_event.type = (ret == pdPASS) ? I2S_EVENT_RX_DONE : I2S_EVENT_RX_Q_OVF;
-            if (p_i2s->i2s_queue && xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
-                xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
+            xQueueReceiveFromISR(p_i2s->rx->queue, &dummy, &tmp);
+            need_awoke |= tmp;
+            if (p_i2s->i2s_queue) {
+                i2s_event.type = I2S_EVENT_RX_Q_OVF;
+                xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &tmp);
+                need_awoke |= tmp;
             }
-            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &high_priority_task_awoken);
+        }
+        xQueueSendFromISR(p_i2s->rx->queue, &(((lldesc_t *)finish_desc)->buf), &tmp);
+        need_awoke |= tmp;
+        if (p_i2s->i2s_queue) {
+            i2s_event.type = I2S_EVENT_RX_DONE;
+            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &tmp);
+            need_awoke |= tmp;
         }
     }
-    return high_priority_task_awoken;
+    return need_awoke;
 }
 
 /**
@@ -384,29 +388,36 @@ static bool IRAM_ATTR i2s_dma_rx_callback(gdma_channel_handle_t dma_chan, gdma_e
 static bool IRAM_ATTR i2s_dma_tx_callback(gdma_channel_handle_t dma_chan, gdma_event_data_t *event_data, void *user_data)
 {
     i2s_obj_t *p_i2s = (i2s_obj_t *) user_data;
-    portBASE_TYPE high_priority_task_awoken = 0;
-    BaseType_t ret;
+    portBASE_TYPE need_awoke = 0;
+    portBASE_TYPE tmp = 0;
     int dummy;
     i2s_event_t i2s_event;
     uint32_t finish_desc;
     if (p_i2s->tx) {
         finish_desc = event_data->tx_eof_desc_addr;
+        i2s_event.size = ((lldesc_t *)finish_desc)->size;
         if (xQueueIsQueueFullFromISR(p_i2s->tx->queue)) {
-            xQueueReceiveFromISR(p_i2s->tx->queue, &dummy, &high_priority_task_awoken);
+            xQueueReceiveFromISR(p_i2s->tx->queue, &dummy, &tmp);
+            need_awoke |= tmp;
             if (p_i2s->tx_desc_auto_clear) {
                 memset((void *) dummy, 0, p_i2s->tx->buf_size);
             }
-        }
-        ret = xQueueSendFromISR(p_i2s->tx->queue, &(((lldesc_t *)finish_desc)->buf), &high_priority_task_awoken);
-        if (p_i2s->i2s_queue) {
-            i2s_event.type = (ret == pdPASS) ? I2S_EVENT_TX_DONE : I2S_EVENT_TX_Q_OVF;
-            if (xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
-                xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
+            if (p_i2s->i2s_queue) {
+                i2s_event.type = I2S_EVENT_TX_Q_OVF;
+                i2s_event.size = p_i2s->tx->buf_size;
+                xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &tmp);
+                need_awoke |= tmp;
             }
-            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &high_priority_task_awoken);
+        }
+        xQueueSendFromISR(p_i2s->tx->queue, &(((lldesc_t *)finish_desc)->buf), &tmp);
+        need_awoke |= tmp;
+        if (p_i2s->i2s_queue) {
+            i2s_event.type = I2S_EVENT_TX_DONE;
+            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &tmp);
+            need_awoke |= tmp;
         }
     }
-    return high_priority_task_awoken;
+    return need_awoke;
 }
 
 #else
@@ -428,59 +439,74 @@ static void IRAM_ATTR i2s_intr_handler_default(void *arg)
 
     i2s_event_t i2s_event;
     int dummy;
-    portBASE_TYPE high_priority_task_awoken = 0;
+    portBASE_TYPE need_awoke = 0;
+    portBASE_TYPE tmp = 0;
     uint32_t  finish_desc = 0;
     if ((status & I2S_INTR_OUT_DSCR_ERR) || (status & I2S_INTR_IN_DSCR_ERR)) {
         ESP_EARLY_LOGE(TAG, "dma error, interrupt status: 0x%08x", status);
         if (p_i2s->i2s_queue) {
             i2s_event.type = I2S_EVENT_DMA_ERROR;
             if (xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
-                xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
+                xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &tmp);
+                need_awoke |= tmp;
             }
-            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &high_priority_task_awoken);
+            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &tmp);
+            need_awoke |= tmp;
         }
     }
 
     if ((status & I2S_INTR_OUT_EOF) && p_i2s->tx) {
         i2s_hal_get_out_eof_des_addr(&(p_i2s->hal), &finish_desc);
+        i2s_event.size = ((lldesc_t *)finish_desc)->size;
         // All buffers are empty. This means we have an underflow on our hands.
         if (xQueueIsQueueFullFromISR(p_i2s->tx->queue)) {
-            xQueueReceiveFromISR(p_i2s->tx->queue, &dummy, &high_priority_task_awoken);
+            xQueueReceiveFromISR(p_i2s->tx->queue, &dummy, &tmp);
+            need_awoke |= tmp;
             // See if tx descriptor needs to be auto cleared:
             // This will avoid any kind of noise that may get introduced due to transmission
             // of previous data from tx descriptor on I2S line.
             if (p_i2s->tx_desc_auto_clear == true) {
                 memset((void *) dummy, 0, p_i2s->tx->buf_size);
             }
+            if (p_i2s->i2s_queue) {
+                i2s_event.type = I2S_EVENT_TX_Q_OVF;
+                xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &tmp);
+                need_awoke |= tmp;
+            }
         }
-        xQueueSendFromISR(p_i2s->tx->queue, &(((lldesc_t *)finish_desc)->buf), &high_priority_task_awoken);
+        xQueueSendFromISR(p_i2s->tx->queue, &(((lldesc_t *)finish_desc)->buf), &tmp);
+        need_awoke |= tmp;
         if (p_i2s->i2s_queue) {
             i2s_event.type = I2S_EVENT_TX_DONE;
-            if (xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
-                xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
-            }
-            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &high_priority_task_awoken);
+            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &tmp);
+            need_awoke |= tmp;
         }
     }
 
     if ((status & I2S_INTR_IN_SUC_EOF) && p_i2s->rx) {
         // All buffers are full. This means we have an overflow.
         i2s_hal_get_in_eof_des_addr(&(p_i2s->hal), &finish_desc);
+        i2s_event.size = ((lldesc_t *)finish_desc)->size;
         if (xQueueIsQueueFullFromISR(p_i2s->rx->queue)) {
-            xQueueReceiveFromISR(p_i2s->rx->queue, &dummy, &high_priority_task_awoken);
+            xQueueReceiveFromISR(p_i2s->rx->queue, &dummy, &tmp);
+            need_awoke |= tmp;
+            if (p_i2s->i2s_queue) {
+                i2s_event.type = I2S_EVENT_RX_Q_OVF;
+                xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &tmp);
+                need_awoke |= tmp;
+            }
         }
-        xQueueSendFromISR(p_i2s->rx->queue, &(((lldesc_t *)finish_desc)->buf), &high_priority_task_awoken);
+        xQueueSendFromISR(p_i2s->rx->queue, &(((lldesc_t *)finish_desc)->buf), &tmp);
+        need_awoke |= tmp;
         if (p_i2s->i2s_queue) {
             i2s_event.type = I2S_EVENT_RX_DONE;
-            if (p_i2s->i2s_queue && xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
-                xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
-            }
-            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &high_priority_task_awoken);
+            xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &tmp);
+            need_awoke |= tmp;
         }
     }
     i2s_hal_clear_intr_status(&(p_i2s->hal), status);
 
-    if (high_priority_task_awoken == pdTRUE) {
+    if (need_awoke == pdTRUE) {
         portYIELD_FROM_ISR();
     }
 }
@@ -662,9 +688,9 @@ static inline uint32_t i2s_get_buf_size(i2s_port_t i2s_num)
     uint32_t bytes_per_sample = ((p_i2s[i2s_num]->hal_cfg.sample_bits + 15) / 16) * 2;
     /* The DMA buffer limitation is 4092 bytes */
     uint32_t bytes_per_frame = bytes_per_sample * p_i2s[i2s_num]->hal_cfg.active_chan;
-    p_i2s[i2s_num]->dma_buf_len = (p_i2s[i2s_num]->dma_buf_len * bytes_per_frame > I2S_DMA_BUFFER_MAX_SIZE) ?
-                                  I2S_DMA_BUFFER_MAX_SIZE / bytes_per_frame : p_i2s[i2s_num]->dma_buf_len;
-    return p_i2s[i2s_num]->dma_buf_len * bytes_per_frame;
+    p_i2s[i2s_num]->dma_frame_num = (p_i2s[i2s_num]->dma_frame_num * bytes_per_frame > I2S_DMA_BUFFER_MAX_SIZE) ?
+                                  I2S_DMA_BUFFER_MAX_SIZE / bytes_per_frame : p_i2s[i2s_num]->dma_frame_num;
+    return p_i2s[i2s_num]->dma_frame_num * bytes_per_frame;
 }
 
 /**
@@ -680,7 +706,7 @@ static esp_err_t i2s_delete_dma_buffer(i2s_port_t i2s_num, i2s_dma_t *dma_obj)
 {
     ESP_RETURN_ON_FALSE(dma_obj, ESP_ERR_INVALID_ARG, TAG, "I2S DMA object can't be NULL");
     /* Loop to destroy every descriptor and buffer */
-    for (int cnt = 0; cnt < p_i2s[i2s_num]->dma_buf_count; cnt++) {
+    for (int cnt = 0; cnt < p_i2s[i2s_num]->dma_desc_num; cnt++) {
         if (dma_obj->desc && dma_obj->desc[cnt]) {
             free(dma_obj->desc[cnt]);
             dma_obj->desc[cnt] = NULL;
@@ -707,7 +733,7 @@ static esp_err_t i2s_alloc_dma_buffer(i2s_port_t i2s_num, i2s_dma_t *dma_obj)
     esp_err_t ret = ESP_OK;
     ESP_GOTO_ON_FALSE(dma_obj, ESP_ERR_INVALID_ARG, err, TAG, "I2S DMA object can't be NULL");
 
-    uint32_t buf_cnt = p_i2s[i2s_num]->dma_buf_count;
+    uint32_t buf_cnt = p_i2s[i2s_num]->dma_desc_num;
     for (int cnt = 0; cnt < buf_cnt; cnt++) {
         /* Allocate DMA buffer */
         dma_obj->buf[cnt] = (char *) heap_caps_calloc(dma_obj->buf_size, sizeof(char), MALLOC_CAP_DMA);
@@ -733,7 +759,7 @@ static esp_err_t i2s_alloc_dma_buffer(i2s_port_t i2s_num, i2s_dma_t *dma_obj)
         /* Link to the next descriptor */
         dma_obj->desc[cnt]->empty = (uint32_t)((cnt < (buf_cnt - 1)) ? (dma_obj->desc[cnt + 1]) : dma_obj->desc[0]);
     }
-    ESP_LOGI(TAG, "DMA Malloc info, datalen=blocksize=%d, dma_buf_count=%d", dma_obj->buf_size, buf_cnt);
+    ESP_LOGI(TAG, "DMA Malloc info, datalen=blocksize=%d, dma_desc_num=%d", dma_obj->buf_size, buf_cnt);
     return ESP_OK;
 err:
     /* Delete DMA buffer if failed to allocate memory */
@@ -819,7 +845,7 @@ static esp_err_t i2s_create_dma_object(i2s_port_t i2s_num, i2s_dma_t **dma)
 {
     ESP_RETURN_ON_FALSE(dma, ESP_ERR_INVALID_ARG, TAG, "DMA object secondary pointer is NULL");
     ESP_RETURN_ON_FALSE((*dma == NULL), ESP_ERR_INVALID_ARG, TAG, "DMA object has been created");
-    uint32_t buf_cnt = p_i2s[i2s_num]->dma_buf_count;
+    uint32_t buf_cnt = p_i2s[i2s_num]->dma_desc_num;
     /* Allocate new DMA structure */
     *dma = (i2s_dma_t *) malloc(sizeof(i2s_dma_t));
     ESP_RETURN_ON_FALSE(*dma, ESP_ERR_NO_MEM, TAG, "DMA object allocate failed");
@@ -866,7 +892,7 @@ esp_err_t i2s_zero_dma_buffer(i2s_port_t i2s_num)
 
     /* Clear I2S RX DMA buffer */
     if (p_i2s[i2s_num]->rx && p_i2s[i2s_num]->rx->buf != NULL && p_i2s[i2s_num]->rx->buf_size != 0) {
-        for (int i = 0; i < p_i2s[i2s_num]->dma_buf_count; i++) {
+        for (int i = 0; i < p_i2s[i2s_num]->dma_desc_num; i++) {
             memset(p_i2s[i2s_num]->rx->buf[i], 0, p_i2s[i2s_num]->rx->buf_size);
         }
     }
@@ -879,7 +905,7 @@ esp_err_t i2s_zero_dma_buffer(i2s_port_t i2s_num)
             size_t zero_bytes = 0, bytes_written;
             i2s_write(i2s_num, (void *)&zero_bytes, bytes_left, &bytes_written, portMAX_DELAY);
         }
-        for (int i = 0; i < p_i2s[i2s_num]->dma_buf_count; i++) {
+        for (int i = 0; i < p_i2s[i2s_num]->dma_desc_num; i++) {
             memset(p_i2s[i2s_num]->tx->buf[i], 0, p_i2s[i2s_num]->tx->buf_size);
         }
     }
@@ -889,124 +915,6 @@ esp_err_t i2s_zero_dma_buffer(i2s_port_t i2s_num)
 /*-------------------------------------------------------------
                    I2S clock operation
   -------------------------------------------------------------*/
-#if SOC_I2S_SUPPORTS_APLL
-/**
- * @brief Get APLL frequency
- */
-static float i2s_apll_get_freq(int bits_per_sample, int sdm0, int sdm1, int sdm2, int odir)
-{
-    int f_xtal = (int)rtc_clk_xtal_freq_get() * 1000000;
-
-#if CONFIG_IDF_TARGET_ESP32
-    /* ESP32 rev0 silicon issue for APLL range/accuracy, please see ESP32 ECO document for more information on this */
-    if (esp_efuse_get_chip_ver() == 0) {
-        sdm0 = 0;
-        sdm1 = 0;
-    }
-#endif
-    float fout = f_xtal * (sdm2 + sdm1 / 256.0f + sdm0 / 65536.0f + 4);
-    if (fout < SOC_I2S_APLL_MIN_FREQ || fout > SOC_I2S_APLL_MAX_FREQ) {
-        return SOC_I2S_APLL_MAX_FREQ;
-    }
-    float fpll = fout / (2 * (odir + 2)); //== fi2s (N=1, b=0, a=1)
-    return fpll / 2;
-}
-
-/**
- * @brief     APLL calculate function, was described by following:
- *            APLL Output frequency is given by the formula:
- *
- *            apll_freq = xtal_freq * (4 + sdm2 + sdm1/256 + sdm0/65536)/((o_div + 2) * 2)
- *            apll_freq = fout / ((o_div + 2) * 2)
- *
- *            The dividend in this expression should be in the range of 240 - 600 MHz.
- *            In rev. 0 of ESP32, sdm0 and sdm1 are unused and always set to 0.
- *            * sdm0  frequency adjustment parameter, 0..255
- *            * sdm1  frequency adjustment parameter, 0..255
- *            * sdm2  frequency adjustment parameter, 0..63
- *            * o_div  frequency divider, 0..31
- *
- *            The most accurate way to find the sdm0..2 and odir parameters is to loop through them all,
- *            then apply the above formula, finding the closest frequency to the desired one.
- *            But 256*256*64*32 = 134,217,728 loops are too slow with ESP32
- *            1. We will choose the parameters with the highest level of change,
- *               With 350MHz<fout<500MHz, we limit the sdm2 from 4 to 9,
- *               Take average frequency close to the desired frequency, and select sdm2
- *            2. Next, we look for sequences of less influential and more detailed parameters,
- *               also by taking the average of the largest and smallest frequencies closer to the desired frequency.
- *            3. And finally, loop through all the most detailed of the parameters, finding the best desired frequency
- *
- * @param[in]       rate             The I2S Frequency (MCLK)
- * @param[in]       bits_per_sample  The bits per sample
- * @param[out]      sdm0             The sdm 0
- * @param[out]      sdm1             The sdm 1
- * @param[out]      sdm2             The sdm 2
- * @param[out]      odir             The odir
- */
-static void i2s_apll_calculate_fi2s(int rate, int bits_per_sample, int *sdm0, int *sdm1, int *sdm2, int *odir)
-{
-    int _odir, _sdm0, _sdm1, _sdm2;
-    float avg;
-    float min_rate, max_rate, min_diff;
-
-    *sdm0 = 0;
-    *sdm1 = 0;
-    *sdm2 = 0;
-    *odir = 0;
-    min_diff = SOC_I2S_APLL_MAX_FREQ;
-
-    for (_sdm2 = 4; _sdm2 < 9; _sdm2 ++) {
-        max_rate = i2s_apll_get_freq(bits_per_sample, 255, 255, _sdm2, 0);
-        min_rate = i2s_apll_get_freq(bits_per_sample, 0, 0, _sdm2, 31);
-        avg = (max_rate + min_rate) / 2;
-        if (abs(avg - rate) < min_diff) {
-            min_diff = abs(avg - rate);
-            *sdm2 = _sdm2;
-        }
-    }
-    min_diff = SOC_I2S_APLL_MAX_FREQ;
-    for (_odir = 0; _odir < 32; _odir ++) {
-        max_rate = i2s_apll_get_freq(bits_per_sample, 255, 255, *sdm2, _odir);
-        min_rate = i2s_apll_get_freq(bits_per_sample, 0, 0, *sdm2, _odir);
-        avg = (max_rate + min_rate) / 2;
-        if (abs(avg - rate) < min_diff) {
-            min_diff = abs(avg - rate);
-            *odir = _odir;
-        }
-    }
-    min_diff = SOC_I2S_APLL_MAX_FREQ;
-    for (_sdm2 = 4; _sdm2 < 9; _sdm2 ++) {
-        max_rate = i2s_apll_get_freq(bits_per_sample, 255, 255, _sdm2, *odir);
-        min_rate = i2s_apll_get_freq(bits_per_sample, 0, 0, _sdm2, *odir);
-        avg = (max_rate + min_rate) / 2;
-        if (abs(avg - rate) < min_diff) {
-            min_diff = abs(avg - rate);
-            *sdm2 = _sdm2;
-        }
-    }
-
-    min_diff = SOC_I2S_APLL_MAX_FREQ;
-    for (_sdm1 = 0; _sdm1 < 256; _sdm1 ++) {
-        max_rate = i2s_apll_get_freq(bits_per_sample, 255, _sdm1, *sdm2, *odir);
-        min_rate = i2s_apll_get_freq(bits_per_sample, 0, _sdm1, *sdm2, *odir);
-        avg = (max_rate + min_rate) / 2;
-        if (abs(avg - rate) < min_diff) {
-            min_diff = abs(avg - rate);
-            *sdm1 = _sdm1;
-        }
-    }
-
-    min_diff = SOC_I2S_APLL_MAX_FREQ;
-    for (_sdm0 = 0; _sdm0 < 256; _sdm0 ++) {
-        avg = i2s_apll_get_freq(bits_per_sample, _sdm0, *sdm1, *sdm2, *odir);
-        if (abs(avg - rate) < min_diff) {
-            min_diff = abs(avg - rate);
-            *sdm0 = _sdm0;
-        }
-    }
-}
-#endif
-
 /**
  * @brief   Config I2S source clock and get its frequency
  *
@@ -1022,21 +930,29 @@ static uint32_t i2s_config_source_clock(i2s_port_t i2s_num, bool use_apll, uint3
 {
 #if SOC_I2S_SUPPORTS_APLL
     if (use_apll) {
-        int sdm0 = 0;
-        int sdm1 = 0;
-        int sdm2 = 0;
-        int odir = 0;
-        if ((mclk / p_i2s[i2s_num]->hal_cfg.chan_bits / p_i2s[i2s_num]->hal_cfg.total_chan) < SOC_I2S_APLL_MIN_RATE) {
-            ESP_LOGE(TAG, "mclk is too small");
+        /* Calculate the expected APLL  */
+        int div = (int)((SOC_APLL_MIN_HZ / mclk) + 1);
+        /* apll_freq = mclk * div
+         * when div = 1, hardware will still divide 2
+         * when div = 0, the final mclk will be unpredictable
+         * So the div here should be at least 2 */
+        div = div < 2 ? 2 : div;
+        uint32_t expt_freq = mclk * div;
+        /* Set APLL coefficients to the given frequency */
+        uint32_t real_freq = 0;
+        esp_err_t ret = periph_rtc_apll_freq_set(expt_freq, &real_freq);
+        if (ret == ESP_ERR_INVALID_ARG) {
+            ESP_LOGE(TAG, "set APLL coefficients failed");
             return 0;
         }
-        i2s_apll_calculate_fi2s(mclk, p_i2s[i2s_num]->hal_cfg.sample_bits, &sdm0, &sdm1, &sdm2, &odir);
-        ESP_LOGI(TAG, "APLL Enabled, coefficient: sdm0=%d, sdm1=%d, sdm2=%d, odir=%d", sdm0, sdm1, sdm2, odir);
-        rtc_clk_apll_enable(true, sdm0, sdm1, sdm2, odir);
+        if (ret == ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "APLL is occupied already, it is working at %d Hz", real_freq);
+        }
+        ESP_LOGI(TAG, "APLL expected frequency is %d Hz, real frequency is %d Hz", expt_freq, real_freq);
         /* Set I2S_APLL as I2S module clock source */
         i2s_hal_set_clock_src(&(p_i2s[i2s_num]->hal), I2S_CLK_APLL);
         /* In APLL mode, there is no sclk but only mclk, so return 0 here to indicate APLL mode */
-        return 0;
+        return real_freq;
     }
     /* Set I2S_D2CLK (160M) as default I2S module clock source */
     i2s_hal_set_clock_src(&(p_i2s[i2s_num]->hal), I2S_CLK_D2CLK);
@@ -1081,7 +997,7 @@ static esp_err_t i2s_calculate_adc_dac_clock(int i2s_num, i2s_hal_clock_cfg_t *c
     clk_cfg->mclk_div = clk_cfg->sclk / clk_cfg->mclk;
 
     /* Check if the configuration is correct */
-    ESP_RETURN_ON_FALSE(!clk_cfg->sclk || clk_cfg->mclk <= clk_cfg->sclk, ESP_ERR_INVALID_ARG, TAG, "sample rate is too large");
+    ESP_RETURN_ON_FALSE(clk_cfg->mclk <= clk_cfg->sclk, ESP_ERR_INVALID_ARG, TAG, "sample rate is too large");
 
     return ESP_OK;
 }
@@ -1119,7 +1035,7 @@ static esp_err_t i2s_calculate_pdm_tx_clock(int i2s_num, i2s_hal_clock_cfg_t *cl
     clk_cfg->mclk_div = clk_cfg->sclk / clk_cfg->mclk;
 
     /* Check if the configuration is correct */
-    ESP_RETURN_ON_FALSE(!clk_cfg->sclk || clk_cfg->mclk <= clk_cfg->sclk, ESP_ERR_INVALID_ARG, TAG, "sample rate is too large");
+    ESP_RETURN_ON_FALSE(clk_cfg->mclk <= clk_cfg->sclk, ESP_ERR_INVALID_ARG, TAG, "sample rate is too large");
 
     return ESP_OK;
 }
@@ -1157,7 +1073,7 @@ static esp_err_t i2s_calculate_pdm_rx_clock(int i2s_num, i2s_hal_clock_cfg_t *cl
     clk_cfg->mclk_div = clk_cfg->sclk / clk_cfg->mclk;
 
     /* Check if the configuration is correct */
-    ESP_RETURN_ON_FALSE(!clk_cfg->sclk || clk_cfg->mclk <= clk_cfg->sclk, ESP_ERR_INVALID_ARG, TAG, "sample rate is too large");
+    ESP_RETURN_ON_FALSE(clk_cfg->mclk <= clk_cfg->sclk, ESP_ERR_INVALID_ARG, TAG, "sample rate is too large");
 
     return ESP_OK;
 }
@@ -1213,7 +1129,7 @@ static esp_err_t i2s_calculate_common_clock(int i2s_num, i2s_hal_clock_cfg_t *cl
     clk_cfg->mclk_div = clk_cfg->sclk / clk_cfg->mclk;
 
     /* Check if the configuration is correct */
-    ESP_RETURN_ON_FALSE(!clk_cfg->sclk || clk_cfg->mclk <= clk_cfg->sclk, ESP_ERR_INVALID_ARG, TAG, "sample rate is too large");
+    ESP_RETURN_ON_FALSE(clk_cfg->mclk <= clk_cfg->sclk, ESP_ERR_INVALID_ARG, TAG, "sample rate is too large");
 
     return ESP_OK;
 }
@@ -1808,8 +1724,8 @@ static esp_err_t i2s_driver_init(i2s_port_t i2s_num, const i2s_config_t *i2s_con
 
     /* I2S driver configuration assignment */
     p_i2s[i2s_num]->i2s_num = i2s_num;
-    p_i2s[i2s_num]->dma_buf_count = i2s_config->dma_buf_count;
-    p_i2s[i2s_num]->dma_buf_len = i2s_config->dma_buf_len;
+    p_i2s[i2s_num]->dma_desc_num = i2s_config->dma_desc_num;
+    p_i2s[i2s_num]->dma_frame_num = i2s_config->dma_frame_num;
     p_i2s[i2s_num]->last_buf_size = 0;
     p_i2s[i2s_num]->use_apll = i2s_config->use_apll;
     p_i2s[i2s_num]->fixed_mclk = i2s_config->fixed_mclk;
@@ -1918,8 +1834,8 @@ esp_err_t i2s_driver_install(i2s_port_t i2s_num, const i2s_config_t *i2s_config,
     ESP_RETURN_ON_FALSE((i2s_num < I2S_NUM_MAX), ESP_ERR_INVALID_ARG, TAG, "i2s_num error");
     ESP_RETURN_ON_FALSE(i2s_config, ESP_ERR_INVALID_ARG, TAG, "I2S configuration must not be NULL");
     /* Check the size of DMA buffer */
-    ESP_RETURN_ON_FALSE((i2s_config->dma_buf_count >= 2 && i2s_config->dma_buf_count <= 128), ESP_ERR_INVALID_ARG, TAG, "I2S buffer count less than 128 and more than 2");
-    ESP_RETURN_ON_FALSE((i2s_config->dma_buf_len >= 8 && i2s_config->dma_buf_len <= 1024), ESP_ERR_INVALID_ARG, TAG, "I2S buffer length at most 1024 and more than 8");
+    ESP_RETURN_ON_FALSE((i2s_config->dma_desc_num >= 2 && i2s_config->dma_desc_num <= 128), ESP_ERR_INVALID_ARG, TAG, "I2S buffer count less than 128 and more than 2");
+    ESP_RETURN_ON_FALSE((i2s_config->dma_frame_num >= 8 && i2s_config->dma_frame_num <= 1024), ESP_ERR_INVALID_ARG, TAG, "I2S buffer length at most 1024 and more than 8");
 
     /* Step 2: Allocate driver object and register to platform */
     i2s_obj_t *pre_alloc_i2s_obj = calloc(1, sizeof(i2s_obj_t));
@@ -1962,6 +1878,15 @@ esp_err_t i2s_driver_install(i2s_port_t i2s_num, const i2s_config_t *i2s_config,
 #endif
     /* Enable module clock */
     i2s_hal_enable_module_clock(&p_i2s[i2s_num]->hal);
+#if SOC_I2S_SUPPORTS_TDM
+    /* Enable tx/rx submodule clock */
+    if (i2s_config->mode & I2S_MODE_TX) {
+        i2s_ll_tx_enable_clock(p_i2s[i2s_num]->hal.dev);
+    }
+    if (i2s_config->mode & I2S_MODE_RX) {
+        i2s_ll_rx_enable_clock(p_i2s[i2s_num]->hal.dev);
+    }
+#endif
 
     /* Step 5: Initialize I2S configuration and set the configurations to register */
     i2s_hal_config_param(&(pre_alloc_i2s_obj->hal), &pre_alloc_i2s_obj->hal_cfg);
@@ -1976,8 +1901,16 @@ esp_err_t i2s_driver_install(i2s_port_t i2s_num, const i2s_config_t *i2s_config,
         pre_alloc_i2s_obj->i2s_queue = NULL;
     }
 
+#if SOC_I2S_SUPPORTS_APLL
+    /* Power up APLL clock */
+    if (i2s_config->use_apll) {
+        periph_rtc_apll_acquire();
+    }
+#endif
+
     /* Step 7: Set I2S clocks and start. No need to give parameters since configurations has been set in 'i2s_driver_init' */
     ESP_GOTO_ON_ERROR(i2s_set_clk(i2s_num, 0, 0, 0), err, TAG, "I2S set clock failed");
+
     return ESP_OK;
 
 err:
@@ -2030,7 +1963,7 @@ esp_err_t i2s_driver_uninstall(i2s_port_t i2s_num)
     if (p_i2s[i2s_num]->use_apll) {
         // switch back to PLL clock source
         i2s_hal_set_clock_src(&(p_i2s[i2s_num]->hal), I2S_CLK_D2CLK);
-        rtc_clk_apll_enable(0, 0, 0, 0, 0);
+        periph_rtc_apll_release();
     }
 #endif
 
@@ -2038,6 +1971,14 @@ esp_err_t i2s_driver_uninstall(i2s_port_t i2s_num)
     if (p_i2s[i2s_num]->pm_lock) {
         esp_pm_lock_delete(p_i2s[i2s_num]->pm_lock);
         p_i2s[i2s_num]->pm_lock = NULL;
+    }
+#endif
+#if SOC_I2S_SUPPORTS_TDM
+    if (p_i2s[i2s_num]->hal_cfg.mode & I2S_MODE_TX) {
+        i2s_ll_tx_disable_clock(p_i2s[i2s_num]->hal.dev);
+    }
+    if (p_i2s[i2s_num]->hal_cfg.mode & I2S_MODE_RX) {
+        i2s_ll_rx_disable_clock(p_i2s[i2s_num]->hal.dev);
     }
 #endif
     /* Disable module clock */
@@ -2066,7 +2007,6 @@ esp_err_t i2s_driver_uninstall(i2s_port_t i2s_num)
  */
 esp_err_t i2s_write(i2s_port_t i2s_num, const void *src, size_t size, size_t *bytes_written, TickType_t ticks_to_wait)
 {
-    esp_err_t ret = ESP_OK;
     char *data_ptr, *src_byte;
     size_t bytes_can_write;
     *bytes_written = 0;
@@ -2080,7 +2020,6 @@ esp_err_t i2s_write(i2s_port_t i2s_num, const void *src, size_t size, size_t *by
     while (size > 0) {
         if (p_i2s[i2s_num]->tx->rw_pos == p_i2s[i2s_num]->tx->buf_size || p_i2s[i2s_num]->tx->curr_ptr == NULL) {
             if (xQueueReceive(p_i2s[i2s_num]->tx->queue, &p_i2s[i2s_num]->tx->curr_ptr, ticks_to_wait) == pdFALSE) {
-                ret = ESP_ERR_TIMEOUT;
                 break;
             }
             p_i2s[i2s_num]->tx->rw_pos = 0;
@@ -2102,7 +2041,7 @@ esp_err_t i2s_write(i2s_port_t i2s_num, const void *src, size_t size, size_t *by
     esp_pm_lock_release(p_i2s[i2s_num]->pm_lock);
 #endif
     xSemaphoreGive(p_i2s[i2s_num]->tx->mux);
-    return ret;
+    return ESP_OK;
 }
 
 /**
@@ -2127,7 +2066,6 @@ esp_err_t i2s_write(i2s_port_t i2s_num, const void *src, size_t size, size_t *by
  */
 esp_err_t i2s_write_expand(i2s_port_t i2s_num, const void *src, size_t size, size_t src_bits, size_t aim_bits, size_t *bytes_written, TickType_t ticks_to_wait)
 {
-    esp_err_t ret = ESP_OK;
     char *data_ptr;
     int bytes_can_write, tail;
     int src_bytes, aim_bytes, zero_bytes;
@@ -2162,7 +2100,6 @@ esp_err_t i2s_write_expand(i2s_port_t i2s_num, const void *src, size_t size, siz
     while (size > 0) {
         if (p_i2s[i2s_num]->tx->rw_pos == p_i2s[i2s_num]->tx->buf_size || p_i2s[i2s_num]->tx->curr_ptr == NULL) {
             if (xQueueReceive(p_i2s[i2s_num]->tx->queue, &p_i2s[i2s_num]->tx->curr_ptr, ticks_to_wait) == pdFALSE) {
-                ret = ESP_ERR_TIMEOUT;
                 break;
             }
             p_i2s[i2s_num]->tx->rw_pos = 0;
@@ -2186,7 +2123,7 @@ esp_err_t i2s_write_expand(i2s_port_t i2s_num, const void *src, size_t size, siz
         p_i2s[i2s_num]->tx->rw_pos += bytes_can_write;
     }
     xSemaphoreGive(p_i2s[i2s_num]->tx->mux);
-    return ret;
+    return ESP_OK;
 }
 
 /**
@@ -2205,7 +2142,6 @@ esp_err_t i2s_write_expand(i2s_port_t i2s_num, const void *src, size_t size, siz
  */
 esp_err_t i2s_read(i2s_port_t i2s_num, void *dest, size_t size, size_t *bytes_read, TickType_t ticks_to_wait)
 {
-    esp_err_t ret = ESP_OK;
     char *data_ptr, *dest_byte;
     int bytes_can_read;
     *bytes_read = 0;
@@ -2219,7 +2155,6 @@ esp_err_t i2s_read(i2s_port_t i2s_num, void *dest, size_t size, size_t *bytes_re
     while (size > 0) {
         if (p_i2s[i2s_num]->rx->rw_pos == p_i2s[i2s_num]->rx->buf_size || p_i2s[i2s_num]->rx->curr_ptr == NULL) {
             if (xQueueReceive(p_i2s[i2s_num]->rx->queue, &p_i2s[i2s_num]->rx->curr_ptr, ticks_to_wait) == pdFALSE) {
-                ret = ESP_ERR_TIMEOUT;
                 break;
             }
             p_i2s[i2s_num]->rx->rw_pos = 0;
@@ -2240,7 +2175,7 @@ esp_err_t i2s_read(i2s_port_t i2s_num, void *dest, size_t size, size_t *bytes_re
     esp_pm_lock_release(p_i2s[i2s_num]->pm_lock);
 #endif
     xSemaphoreGive(p_i2s[i2s_num]->rx->mux);
-    return ret;
+    return ESP_OK;
 }
 
 esp_err_t i2s_priv_register_object(void *driver_obj, int port_id)

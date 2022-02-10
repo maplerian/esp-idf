@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2017-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2017-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -33,8 +33,8 @@
 #include "esp32c3/rtc.h"
 #elif CONFIG_IDF_TARGET_ESP32H2
 #include "esp32h2/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP8684
-#include "esp8684/rtc.h"
+#elif CONFIG_IDF_TARGET_ESP32C2
+#include "esp32c2/rtc.h"
 #endif
 
 #include "sdkconfig.h"
@@ -605,11 +605,8 @@ int64_t IRAM_ATTR esp_timer_get_next_alarm_for_wake_up(void)
     int64_t next_alarm = INT64_MAX;
     for (esp_timer_dispatch_t dispatch_method = ESP_TIMER_TASK; dispatch_method < ESP_TIMER_MAX; ++dispatch_method) {
         timer_list_lock(dispatch_method);
-        esp_timer_handle_t it;
+        esp_timer_handle_t it = NULL;
         LIST_FOREACH(it, &s_timers[dispatch_method], list_entry) {
-            if (it == NULL) {
-                break;
-            }
             // timers with the SKIP_UNHANDLED_EVENTS flag do not want to wake up CPU from a sleep mode.
             if ((it->flags & FL_SKIP_UNHANDLED_EVENTS) == 0) {
                 if (next_alarm > it->alarm) {

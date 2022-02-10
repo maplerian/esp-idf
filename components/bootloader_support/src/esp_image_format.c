@@ -1,11 +1,11 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <string.h>
 #include <sys/param.h>
-#include <soc/cpu.h>
+#include <esp_cpu.h>
 #include <bootloader_utility.h>
 #include <esp_secure_boot.h>
 #include <esp_fault.h>
@@ -30,9 +30,9 @@
 #include "esp32c3/rom/secure_boot.h"
 #elif CONFIG_IDF_TARGET_ESP32H2
 #include "esp32h2/rom/secure_boot.h"
-#elif CONFIG_IDF_TARGET_ESP8684
-#include "esp8684/rom/rtc.h"
-#include "esp8684/rom/secure_boot.h"
+#elif CONFIG_IDF_TARGET_ESP32C2
+#include "esp32c2/rom/rtc.h"
+#include "esp32c2/rom/secure_boot.h"
 #endif
 
 /* Checking signatures as part of verifying images is necessary:
@@ -127,24 +127,26 @@ static esp_err_t image_load(esp_image_load_mode_t mode, const esp_partition_pos_
     uint32_t checksum_word = ESP_ROM_CHECKSUM_INITIAL;
     uint32_t *checksum = (do_verify) ? &checksum_word : NULL;
     bootloader_sha256_handle_t sha_handle = NULL;
+    bool verify_sha;
 #if (SECURE_BOOT_CHECK_SIGNATURE == 1)
      /* used for anti-FI checks */
     uint8_t image_digest[HASH_LEN] = { [ 0 ... 31] = 0xEE };
     uint8_t verified_digest[HASH_LEN] = { [ 0 ... 31 ] = 0x01 };
 #endif
-#if CONFIG_SECURE_BOOT_V2_ENABLED
-    // For Secure Boot V2, we do verify signature on bootloader which includes the SHA calculation.
-    bool verify_sha = do_verify;
-#else // Secure boot not enabled
-    // For secure boot V1 on ESP32, we don't calculate SHA or verify signature on bootloaders.
-    // (For non-secure boot, we don't verify any SHA-256 hash appended to the bootloader because
-    // esptool.py may have rewritten the header - rely on esptool.py having verified the bootloader at flashing time, instead.)
-    bool verify_sha = (part->offset != ESP_BOOTLOADER_OFFSET) && do_verify;
-#endif
 
     if (data == NULL || part == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+
+#if CONFIG_SECURE_BOOT_V2_ENABLED
+    // For Secure Boot V2, we do verify signature on bootloader which includes the SHA calculation.
+    verify_sha = do_verify;
+#else // Secure boot not enabled
+    // For secure boot V1 on ESP32, we don't calculate SHA or verify signature on bootloaders.
+    // (For non-secure boot, we don't verify any SHA-256 hash appended to the bootloader because
+    // esptool.py may have rewritten the header - rely on esptool.py having verified the bootloader at flashing time, instead.)
+    verify_sha = (part->offset != ESP_BOOTLOADER_OFFSET) && do_verify;
+#endif
 
     if (part->size > SIXTEEN_MB) {
         err = ESP_ERR_INVALID_ARG;

@@ -1,16 +1,8 @@
-// Copyright 2015-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdio.h>
 
@@ -161,7 +153,6 @@ static esp_err_t esp_websocket_client_abort_connection(esp_websocket_client_hand
     esp_transport_close(client->transport);
 
     if (client->config->auto_reconnect) {
-        client->wait_timeout_ms = WEBSOCKET_RECONNECT_TIMEOUT_MS;
         client->reconnect_tick_ms = _tick_get_ms();
         ESP_LOGI(TAG, "Reconnect after %d ms", client->wait_timeout_ms);
     }
@@ -230,7 +221,7 @@ static esp_err_t esp_websocket_client_set_config(esp_websocket_client_handle_t c
         ESP_WS_CLIENT_MEM_CHECK(TAG, cfg->headers, return ESP_ERR_NO_MEM);
     }
 
-    cfg->network_timeout_ms = WEBSOCKET_NETWORK_TIMEOUT_MS;
+
     cfg->user_context = config->user_context;
     cfg->auto_reconnect = true;
     if (config->disable_auto_reconnect) {
@@ -243,6 +234,13 @@ static esp_err_t esp_websocket_client_set_config(esp_websocket_client_handle_t c
         cfg->pingpong_timeout_sec = config->pingpong_timeout_sec;
     } else {
         cfg->pingpong_timeout_sec = WEBSOCKET_PINGPONG_TIMEOUT_SEC;
+    }
+
+    if (config->network_timeout_ms <= 0) {
+        cfg->network_timeout_ms = WEBSOCKET_NETWORK_TIMEOUT_MS;
+        ESP_LOGW(TAG, "`network_timeout_ms` is not set, or it is less than or equal to zero, using default time out %d (milliseconds)", WEBSOCKET_NETWORK_TIMEOUT_MS);
+    } else {
+        cfg->network_timeout_ms = config->network_timeout_ms;
     }
 
     if (config->ping_interval_sec == 0) {
@@ -381,7 +379,12 @@ esp_websocket_client_handle_t esp_websocket_client_init(const esp_websocket_clie
     if (config->skip_cert_common_name_check) {
         esp_transport_ssl_skip_common_name_check(ssl);
     }
-
+    if (config->reconnect_timeout_ms <= 0) {
+        client->wait_timeout_ms = WEBSOCKET_RECONNECT_TIMEOUT_MS;
+        ESP_LOGW(TAG, "`reconnect_timeout_ms` is not set, or it is less than or equal to zero, using default time out %d (milliseconds)", WEBSOCKET_RECONNECT_TIMEOUT_MS);
+    } else {
+        client->wait_timeout_ms = config->reconnect_timeout_ms;
+    }
     esp_transport_handle_t wss = esp_transport_ws_init(ssl);
     ESP_WS_CLIENT_MEM_CHECK(TAG, wss, goto _websocket_init_fail);
 
@@ -827,11 +830,6 @@ esp_err_t esp_websocket_client_close(esp_websocket_client_handle_t client, TickT
 int esp_websocket_client_send_text(esp_websocket_client_handle_t client, const char *data, int len, TickType_t timeout)
 {
     return esp_websocket_client_send_with_opcode(client, WS_TRANSPORT_OPCODES_TEXT, (const uint8_t *)data, len, timeout);
-}
-
-int esp_websocket_client_send(esp_websocket_client_handle_t client, const char *data, int len, TickType_t timeout)
-{
-    return esp_websocket_client_send_with_opcode(client, WS_TRANSPORT_OPCODES_BINARY, (const uint8_t *)data, len, timeout);
 }
 
 int esp_websocket_client_send_bin(esp_websocket_client_handle_t client, const char *data, int len, TickType_t timeout)

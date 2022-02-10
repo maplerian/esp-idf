@@ -69,7 +69,7 @@ check_docs_lang_sync:
   parallel:
     matrix:
       - DOCLANG: ["en", "zh_CN"]
-        DOCTGT: ["esp32", "esp32s2", "esp32s3", "esp32c3"]
+        DOCTGT: ["esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c2"]
 
 check_docs_gh_links:
   image: $ESP_IDF_DOC_ENV_IMAGE
@@ -152,13 +152,12 @@ build_docs_pdf:
   image: $ESP_IDF_DOC_ENV_IMAGE
   variables:
     PYTHON_VER: 3.6.13
+    DOCS_BUILD_DIR: "${IDF_PATH}/docs/_build/"
+    PYTHONUNBUFFERED: 1
   stage: test_deploy
   tags:
     - deploy
     - shiny
-  variables:
-    DOCS_BUILD_DIR: "${IDF_PATH}/docs/_build/"
-    PYTHONUNBUFFERED: 1
   dependencies: []
   script:
     - add_doc_server_ssh_keys $DOCS_DEPLOY_PRIVATEKEY $DOCS_DEPLOY_SERVER $DOCS_DEPLOY_SERVER_USER
@@ -209,6 +208,7 @@ deploy_docs_production:
     DOCS_DEPLOY_SERVER_USER: "$DOCS_PROD_SERVER_USER"
     DOCS_DEPLOY_PATH: "$DOCS_PROD_PATH"
     DOCS_DEPLOY_URL_BASE: "https://docs.espressif.com/projects/esp-idf"
+    DEPLOY_STABLE: 1
 
 check_doc_links:
   extends:

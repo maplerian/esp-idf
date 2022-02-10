@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -370,24 +370,6 @@ bool rtc_clk_8m_enabled(void);
 bool rtc_clk_8md256_enabled(void);
 
 /**
- * @brief Enable or disable APLL
- *
- * Output frequency is given by the formula:
- * apll_freq = xtal_freq * (4 + sdm2 + sdm1/256 + sdm0/65536)/((o_div + 2) * 2)
- *
- * The dividend in this expression should be in the range of 240 - 600 MHz.
- *
- * In rev. 0 of ESP32, sdm0 and sdm1 are unused and always set to 0.
- *
- * @param enable  true to enable, false to disable
- * @param sdm0  frequency adjustment parameter, 0..255
- * @param sdm1  frequency adjustment parameter, 0..255
- * @param sdm2  frequency adjustment parameter, 0..63
- * @param o_div  frequency divider, 0..31
- */
-void rtc_clk_apll_enable(bool enable, uint32_t sdm0, uint32_t sdm1, uint32_t sdm2, uint32_t o_div);
-
-/**
  * @brief Select source for RTC_SLOW_CLK
  * @param slow_freq clock source (one of rtc_slow_freq_t values)
  */
@@ -505,6 +487,11 @@ void rtc_clk_apb_freq_update(uint32_t apb_freq);
 uint32_t rtc_clk_apb_freq_get(void);
 
 void rtc_clk_cpu_freq_set(uint32_t source, uint32_t div);
+
+/**
+ * @brief Get the current stored AHB frequency.
+ * @return The AHB frequency value as last set via rtc_clk_ahb_freq_set(), in Hz.
+ */
 uint32_t rtc_clk_ahb_freq_get(void);
 
 

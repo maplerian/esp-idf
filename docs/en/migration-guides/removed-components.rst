@@ -6,6 +6,13 @@ Following components are removed from ESP-IDF and moved to `IDF Component Regist
 * `libsodium <https://components.espressif.com/component/espressif/libsodium>`_
 * `cbor <https://components.espressif.com/component/espressif/cbor>`_
 * `jsmn <https://components.espressif.com/component/espressif/jsmn>`_
+* `esp_modem <https://components.espressif.com/component/espressif/esp_modem>`_
+* `nghttp <https://components.espressif.com/component/espressif/nghttp>`_
+
+.. note:: Please note that http parser functionality which was previously part of ``nghttp`` component is now part of :component:`http_parser <http_parser>` component.
+
+* `sh2lib <https://components.espressif.com/component/espressif/sh2lib>`_
+* `expat <https://components.espressif.com/component/espressif/expat>`_
 
 These components can be installed using ``idf.py add-dependency`` command.
 

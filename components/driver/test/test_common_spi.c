@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "hal/gpio_hal.h"
+
 
 int test_freq_default[]=TEST_FREQ_DEFAULT();
 

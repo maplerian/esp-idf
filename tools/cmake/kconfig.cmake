@@ -22,6 +22,9 @@ function(__kconfig_component_init component_target)
     list(SORT kconfig)
     __component_set_property(${component_target} KCONFIG_PROJBUILD "${kconfig}")
     file(GLOB sdkconfig_rename "${component_dir}/sdkconfig.rename")
+    file(GLOB sdkconfig_rename_target "${component_dir}/sdkconfig.rename.${IDF_TARGET}")
+
+    list(APPEND sdkconfig_rename ${sdkconfig_rename_target})
     list(SORT sdkconfig_rename)
     __component_set_property(${component_target} SDKCONFIG_RENAME "${sdkconfig_rename}")
 endfunction()
@@ -94,10 +97,6 @@ function(__kconfig_generate_config sdkconfig sdkconfig_defaults)
     idf_build_get_property(idf_path IDF_PATH)
     idf_build_get_property(idf_env_fpga __IDF_ENV_FPGA)
 
-    string(REPLACE ";" " " kconfigs "${kconfigs}")
-    string(REPLACE ";" " " kconfig_projbuilds "${kconfig_projbuilds}")
-    string(REPLACE ";" " " sdkconfig_renames "${sdkconfig_renames}")
-
     # These are the paths for files which will contain the generated "source" lines for COMPONENT_KCONFIGS and
     # COMPONENT_KCONFIGS_PROJBUILD
     set(kconfigs_projbuild_path "${CMAKE_CURRENT_BINARY_DIR}/kconfigs_projbuild.in")
@@ -130,10 +129,12 @@ function(__kconfig_generate_config sdkconfig sdkconfig_defaults)
 
     set(prepare_kconfig_files_command
         ${python} ${idf_path}/tools/kconfig_new/prepare_kconfig_files.py
+        --list-separator=semicolon
         --env-file ${config_env_path})
 
     set(confgen_basecommand
         ${python} ${idf_path}/tools/kconfig_new/confgen.py
+        --list-separator=semicolon
         --kconfig ${root_kconfig}
         --sdkconfig-rename ${root_sdkconfig_rename}
         --config ${sdkconfig}
@@ -243,4 +244,12 @@ function(__kconfig_generate_config sdkconfig sdkconfig_defaults)
         --config ${sdkconfig}
         VERBATIM
         USES_TERMINAL)
+
+    add_custom_target(save-defconfig
+        COMMAND ${prepare_kconfig_files_command}
+        COMMAND ${confgen_basecommand}
+        --dont-write-deprecated
+        --output savedefconfig ${CMAKE_SOURCE_DIR}/sdkconfig.defaults
+        USES_TERMINAL
+        )
 endfunction()

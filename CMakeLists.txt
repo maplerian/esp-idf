@@ -195,6 +195,13 @@ if(CONFIG_ESP_SYSTEM_USE_EH_FRAME)
 endif()
 
 list(APPEND link_options "-fno-lto")
+list(APPEND link_options "-Wl,--warn-common")
+
+if(CONFIG_IDF_TARGET_LINUX AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    list(APPEND link_options "-Wl,-dead_strip")
+else()
+    list(APPEND link_options "-Wl,--gc-sections")
+endif()
 
 # Placing jump tables in flash would cause issues with code that required
 # to be placed in IRAM
@@ -207,6 +214,16 @@ endif()
 
 if(CMAKE_C_COMPILER_ID MATCHES "LLVM")
     list(APPEND compile_options "-fno-use-cxa-atexit")
+endif()
+
+# For the transition period from 32-bit time_t to 64-bit time_t,
+# auto-detect the size of this type and set corresponding variable.
+include(CheckTypeSize)
+check_type_size("time_t" TIME_T_SIZE)
+if(TIME_T_SIZE)
+    idf_build_set_property(TIME_T_SIZE ${TIME_T_SIZE})
+else()
+    message(FATAL_ERROR "Failed to determine sizeof(time_t)")
 endif()
 
 idf_build_set_property(COMPILE_OPTIONS "${compile_options}" APPEND)

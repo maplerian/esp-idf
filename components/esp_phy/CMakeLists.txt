@@ -1,6 +1,6 @@
 idf_build_get_property(idf_target IDF_TARGET)
 
-if(IDF_TARGET STREQUAL "esp8684")
+if(IDF_TARGET STREQUAL "esp32c2")
     # TODO : IDF-3906
     return()
 endif()
@@ -18,6 +18,7 @@ if(IDF_TARGET STREQUAL "esp32h2")
 else()
     set(srcs "src/phy_init.c")
 endif()
+    list(APPEND srcs "src/lib_printf.c")
 
 idf_build_get_property(build_dir BUILD_DIR)
 

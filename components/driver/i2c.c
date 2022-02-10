@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -38,8 +38,9 @@ static const char *I2C_TAG = "i2c";
 
 #define I2C_DRIVER_ERR_STR             "i2c driver install error"
 #define I2C_DRIVER_MALLOC_ERR_STR      "i2c driver malloc error"
+#define I2C_INTR_ALLOC_ERR_STR         "i2c interrupt allocation error"
 #define I2C_NUM_ERROR_STR              "i2c number error"
-#define I2C_TIMEING_VAL_ERR_STR        "i2c timing value error"
+#define I2C_TIMING_VAL_ERR_STR         "i2c timing value error"
 #define I2C_ADDR_ERROR_STR             "i2c null address error"
 #define I2C_DRIVER_NOT_INSTALL_ERR_STR "i2c driver not installed"
 #define I2C_SLAVE_BUFFER_LEN_ERR_STR   "i2c buffer size too small for slave mode"
@@ -243,6 +244,8 @@ esp_err_t i2c_driver_install(i2c_port_t i2c_num, i2c_mode_t mode, size_t slv_rx_
     ESP_RETURN_ON_FALSE(i2c_num < I2C_NUM_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_NUM_ERROR_STR);
     ESP_RETURN_ON_FALSE(mode == I2C_MODE_MASTER || ( slv_rx_buf_len > 100 || slv_tx_buf_len > 100 ),
               ESP_ERR_INVALID_ARG, I2C_TAG, I2C_SLAVE_BUFFER_LEN_ERR_STR);
+    esp_err_t ret = ESP_OK;
+
     if (p_i2c_obj[i2c_num] == NULL) {
 
 #if !CONFIG_SPIRAM_USE_MALLOC
@@ -346,7 +349,10 @@ esp_err_t i2c_driver_install(i2c_port_t i2c_num, i2c_mode_t mode, size_t slv_rx_
     i2c_hal_disable_intr_mask(&(i2c_context[i2c_num].hal), I2C_LL_INTR_MASK);
     i2c_hal_clr_intsts_mask(&(i2c_context[i2c_num].hal), I2C_LL_INTR_MASK);
     //hook isr handler
-    i2c_isr_register(i2c_num, i2c_isr_handler_default, p_i2c_obj[i2c_num], intr_alloc_flags, &p_i2c_obj[i2c_num]->intr_handle);
+    ret = esp_intr_alloc(i2c_periph_signal[i2c_num].irq, intr_alloc_flags,
+                           i2c_isr_handler_default, p_i2c_obj[i2c_num],
+                           &p_i2c_obj[i2c_num]->intr_handle);
+    ESP_GOTO_ON_ERROR(ret, err, I2C_TAG, I2C_INTR_ALLOC_ERR_STR);
     //Enable I2C slave rx interrupt
     if (mode == I2C_MODE_SLAVE) {
         i2c_hal_enable_slave_rx_it(&(i2c_context[i2c_num].hal));
@@ -705,8 +711,8 @@ esp_err_t i2c_param_config(i2c_port_t i2c_num, const i2c_config_t *i2c_conf)
 esp_err_t i2c_set_period(i2c_port_t i2c_num, int high_period, int low_period)
 {
     ESP_RETURN_ON_FALSE(i2c_num < I2C_NUM_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_NUM_ERROR_STR);
-    ESP_RETURN_ON_FALSE((high_period <= I2C_SCL_HIGH_PERIOD_V) && (high_period > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMEING_VAL_ERR_STR);
-    ESP_RETURN_ON_FALSE((low_period <= I2C_SCL_LOW_PERIOD_V) && (low_period > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMEING_VAL_ERR_STR);
+    ESP_RETURN_ON_FALSE((high_period <= I2C_SCL_HIGH_PERIOD_V) && (high_period > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMING_VAL_ERR_STR);
+    ESP_RETURN_ON_FALSE((low_period <= I2C_SCL_LOW_PERIOD_V) && (low_period > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMING_VAL_ERR_STR);
 
     I2C_ENTER_CRITICAL(&(i2c_context[i2c_num].spinlock));
     i2c_hal_set_scl_timing(&(i2c_context[i2c_num].hal), high_period, low_period);
@@ -748,8 +754,8 @@ esp_err_t i2c_filter_disable(i2c_port_t i2c_num)
 esp_err_t i2c_set_start_timing(i2c_port_t i2c_num, int setup_time, int hold_time)
 {
     ESP_RETURN_ON_FALSE(i2c_num < I2C_NUM_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_NUM_ERROR_STR);
-    ESP_RETURN_ON_FALSE((hold_time <= I2C_SCL_START_HOLD_TIME_V) && (hold_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMEING_VAL_ERR_STR);
-    ESP_RETURN_ON_FALSE((setup_time <= I2C_SCL_RSTART_SETUP_TIME_V) && (setup_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMEING_VAL_ERR_STR);
+    ESP_RETURN_ON_FALSE((hold_time <= I2C_SCL_START_HOLD_TIME_V) && (hold_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMING_VAL_ERR_STR);
+    ESP_RETURN_ON_FALSE((setup_time <= I2C_SCL_RSTART_SETUP_TIME_V) && (setup_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMING_VAL_ERR_STR);
 
     I2C_ENTER_CRITICAL(&(i2c_context[i2c_num].spinlock));
     i2c_hal_set_start_timing(&(i2c_context[i2c_num].hal), setup_time, hold_time);
@@ -770,8 +776,8 @@ esp_err_t i2c_get_start_timing(i2c_port_t i2c_num, int *setup_time, int *hold_ti
 esp_err_t i2c_set_stop_timing(i2c_port_t i2c_num, int setup_time, int hold_time)
 {
     ESP_RETURN_ON_FALSE(i2c_num < I2C_NUM_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_NUM_ERROR_STR);
-    ESP_RETURN_ON_FALSE((setup_time <= I2C_SCL_STOP_SETUP_TIME_V) && (setup_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMEING_VAL_ERR_STR);
-    ESP_RETURN_ON_FALSE((hold_time <= I2C_SCL_STOP_HOLD_TIME_V) && (hold_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMEING_VAL_ERR_STR);
+    ESP_RETURN_ON_FALSE((setup_time <= I2C_SCL_STOP_SETUP_TIME_V) && (setup_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMING_VAL_ERR_STR);
+    ESP_RETURN_ON_FALSE((hold_time <= I2C_SCL_STOP_HOLD_TIME_V) && (hold_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMING_VAL_ERR_STR);
 
     I2C_ENTER_CRITICAL(&(i2c_context[i2c_num].spinlock));
     i2c_hal_set_stop_timing(&(i2c_context[i2c_num].hal), setup_time, hold_time);
@@ -792,8 +798,8 @@ esp_err_t i2c_get_stop_timing(i2c_port_t i2c_num, int *setup_time, int *hold_tim
 esp_err_t i2c_set_data_timing(i2c_port_t i2c_num, int sample_time, int hold_time)
 {
     ESP_RETURN_ON_FALSE(i2c_num < I2C_NUM_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_NUM_ERROR_STR);
-    ESP_RETURN_ON_FALSE((sample_time <= I2C_SDA_SAMPLE_TIME_V) && (sample_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMEING_VAL_ERR_STR);
-    ESP_RETURN_ON_FALSE((hold_time <= I2C_SDA_HOLD_TIME_V) && (hold_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMEING_VAL_ERR_STR);
+    ESP_RETURN_ON_FALSE((sample_time <= I2C_SDA_SAMPLE_TIME_V) && (sample_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMING_VAL_ERR_STR);
+    ESP_RETURN_ON_FALSE((hold_time <= I2C_SDA_HOLD_TIME_V) && (hold_time > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMING_VAL_ERR_STR);
 
     I2C_ENTER_CRITICAL(&(i2c_context[i2c_num].spinlock));
     i2c_hal_set_sda_timing(&(i2c_context[i2c_num].hal), sample_time, hold_time);
@@ -814,7 +820,7 @@ esp_err_t i2c_get_data_timing(i2c_port_t i2c_num, int *sample_time, int *hold_ti
 esp_err_t i2c_set_timeout(i2c_port_t i2c_num, int timeout)
 {
     ESP_RETURN_ON_FALSE(i2c_num < I2C_NUM_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_NUM_ERROR_STR);
-    ESP_RETURN_ON_FALSE((timeout <= I2C_LL_MAX_TIMEOUT) && (timeout > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMEING_VAL_ERR_STR);
+    ESP_RETURN_ON_FALSE((timeout <= I2C_LL_MAX_TIMEOUT) && (timeout > 0), ESP_ERR_INVALID_ARG, I2C_TAG, I2C_TIMING_VAL_ERR_STR);
 
     I2C_ENTER_CRITICAL(&(i2c_context[i2c_num].spinlock));
     i2c_hal_set_tout(&(i2c_context[i2c_num].hal), timeout);
@@ -827,19 +833,6 @@ esp_err_t i2c_get_timeout(i2c_port_t i2c_num, int *timeout)
     ESP_RETURN_ON_FALSE(i2c_num < I2C_NUM_MAX && timeout != NULL, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_NUM_ERROR_STR);
     i2c_hal_get_tout(&(i2c_context[i2c_num].hal), timeout);
     return ESP_OK;
-}
-
-esp_err_t i2c_isr_register(i2c_port_t i2c_num, void (*fn)(void *), void *arg, int intr_alloc_flags, intr_handle_t *handle)
-{
-    ESP_RETURN_ON_FALSE(i2c_num < I2C_NUM_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_NUM_ERROR_STR);
-    ESP_RETURN_ON_FALSE(fn != NULL, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_ADDR_ERROR_STR);
-    esp_err_t ret = esp_intr_alloc(i2c_periph_signal[i2c_num].irq, intr_alloc_flags, fn, arg, handle);
-    return ret;
-}
-
-esp_err_t i2c_isr_free(intr_handle_t handle)
-{
-    return esp_intr_free(handle);
 }
 
 esp_err_t i2c_set_pin(i2c_port_t i2c_num, int sda_io_num, int scl_io_num, bool sda_pullup_en, bool scl_pullup_en, i2c_mode_t mode)
@@ -1375,16 +1368,18 @@ static void IRAM_ATTR i2c_master_cmd_begin_static(i2c_port_t i2c_num)
 //Check whether read or write buffer in cmd_link is internal.
 static bool is_cmd_link_buffer_internal(const i2c_cmd_link_t *link)
 {
-    const i2c_cmd_link_t *cmd_link = link;
-    while (cmd_link != NULL)  {
-        if (cmd_link->cmd.hw_cmd.op_code == I2C_LL_CMD_WRITE || cmd_link->cmd.hw_cmd.op_code == I2C_LL_CMD_READ) {
-            if (cmd_link->cmd.data != NULL && !esp_ptr_internal(cmd_link->cmd.data)) {
-                return false;
-            }
-        }
-        cmd_link = cmd_link->next;
+    bool is_internal = true;
+    for (const i2c_cmd_link_t *cmd_link = link;
+         cmd_link != NULL && is_internal;
+         cmd_link = cmd_link->next)
+    {
+        /* A command node has a valid pointer if it is a read command or a write command with more than one byte. */
+        const bool data_pointer = (cmd_link->cmd.hw_cmd.op_code == I2C_LL_CMD_WRITE && !i2c_cmd_is_single_byte(&cmd_link->cmd))
+                                || cmd_link->cmd.hw_cmd.op_code == I2C_LL_CMD_READ;
+        /* Check if the (non-NULL) pointer points to internal memory. */
+        is_internal &= !data_pointer || cmd_link->cmd.data == NULL || esp_ptr_internal(cmd_link->cmd.data);
     }
-    return true;
+    return is_internal;
 }
 #endif
 
@@ -1398,11 +1393,10 @@ esp_err_t i2c_master_cmd_begin(i2c_port_t i2c_num, i2c_cmd_handle_t cmd_handle, 
 #if CONFIG_SPIRAM_USE_MALLOC
     //If the i2c read or write buffer is not in internal RAM, we will return ESP_FAIL
     //to avoid the ISR handler function crashing when the cache is disabled.
-    if ((p_i2c_obj[i2c_num]->intr_alloc_flags & ESP_INTR_FLAG_IRAM)) {
-        if (!is_cmd_link_buffer_internal(((const i2c_cmd_desc_t *)cmd_handle)->head) ) {
-            ESP_LOGE(I2C_TAG, I2C_PSRAM_BUFFER_WARN_STR);
-            return ESP_ERR_INVALID_ARG;
-        }
+    if ( (p_i2c_obj[i2c_num]->intr_alloc_flags & ESP_INTR_FLAG_IRAM) &&
+         !is_cmd_link_buffer_internal(((const i2c_cmd_desc_t *)cmd_handle)->head) ) {
+        ESP_LOGE(I2C_TAG, I2C_PSRAM_BUFFER_WARN_STR);
+        return ESP_ERR_INVALID_ARG;
     }
 #endif
     // Sometimes when the FSM get stuck, the ACK_ERR interrupt will occur endlessly until we reset the FSM and clear bus.

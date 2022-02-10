@@ -1,16 +1,8 @@
-// Copyright 2015-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_WEBSOCKET_CLIENT_H_
 #define _ESP_WEBSOCKET_CLIENT_H_
@@ -100,6 +92,8 @@ typedef struct {
     int                         keep_alive_idle;            /*!< Keep-alive idle time. Default is 5 (second) */
     int                         keep_alive_interval;        /*!< Keep-alive interval time. Default is 5 (second) */
     int                         keep_alive_count;           /*!< Keep-alive packet retry send count. Default is 3 counts */
+    int                         reconnect_timeout_ms;       /*!< Reconnect after this value in miliseconds if disable_auto_reconnect is not enabled (defaults to 10s) */
+    int                         network_timeout_ms;         /*!< Abort network operation if it is not completed after this value, in milliseconds (defaults to 10s) */
     size_t                      ping_interval_sec;          /*!< Websocket ping interval, defaults to 10 seconds if not set */
     struct ifreq                *if_name;                   /*!< The name of interface for data to go through. Use the default interface without setting */
 } esp_websocket_client_config_t;
@@ -168,20 +162,6 @@ esp_err_t esp_websocket_client_stop(esp_websocket_client_handle_t client);
  * @return     esp_err_t
  */
 esp_err_t esp_websocket_client_destroy(esp_websocket_client_handle_t client);
-
-/**
- * @brief      Generic write data to the WebSocket connection; defaults to binary send
- *
- * @param[in]  client  The client
- * @param[in]  data    The data
- * @param[in]  len     The length
- * @param[in]  timeout Write data timeout in RTOS ticks
- *
- * @return
- *     - Number of data was sent
- *     - (-1) if any errors
- */
-int esp_websocket_client_send(esp_websocket_client_handle_t client, const char *data, int len, TickType_t timeout);
 
 /**
  * @brief      Write binary data to the WebSocket connection (data send with WS OPCODE=02, i.e. binary)

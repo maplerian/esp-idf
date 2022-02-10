@@ -14,6 +14,7 @@ if(NOT BOOTLOADER_BUILD)
         "spi_slave_hal.c"
         "spi_slave_hal_iram.c"
         "timer_hal.c"
+        "timer_hal_iram.c"
         "ledc_hal.c"
         "ledc_hal_iram.c"
         "i2c_hal.c"
@@ -69,7 +70,6 @@ if(NOT BOOTLOADER_BUILD)
                     "twai_hal.c"
                     "twai_hal_iram.c"
                     "aes_hal.c"
-                    "esp32s2/adc_hal.c"
                     "esp32s2/brownout_hal.c"
                     "esp32s2/cp_dma_hal.c"
                     "esp32s2/touch_sensor_hal.c"
@@ -139,21 +139,19 @@ if(NOT BOOTLOADER_BUILD)
             "twai_hal.c"
             "twai_hal_iram.c"
             "aes_hal.c"
-            "esp32h2/adc_hal.c"
             "esp32h2/brownout_hal.c"
             "esp32h2/hmac_hal.c"
             "esp32h2/rtc_cntl_hal.c")
     endif()
 
-    if(${target} STREQUAL "esp8684")
+    if(${target} STREQUAL "esp32c2")
         list(APPEND srcs
               "gdma_hal.c"
               "spi_flash_hal_gpspi.c"
               "spi_slave_hd_hal.c"
               "systimer_hal.c"
-              "esp8684/adc_hal.c"
-              "esp8684/brownout_hal.c"
-              "esp8684/rtc_cntl_hal.c")
+              "esp32c2/brownout_hal.c"
+              "esp32c2/rtc_cntl_hal.c")
     endif()
 endif()
 

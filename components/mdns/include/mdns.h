@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -59,6 +59,14 @@ typedef enum mdns_if_internal {
     MDNS_IF_ETH = 2,
     MDNS_IF_MAX
 } mdns_if_t;
+
+/**
+ * @brief mDNS query type to be explicitly set to either Unicast or Multicast
+ */
+typedef enum {
+    MDNS_QUERY_UNICAST,
+    MDNS_QUERY_MULTICAST,
+} mdns_query_transmission_type_t;
 
 /**
  * @brief   mDNS query result structure
@@ -269,6 +277,7 @@ esp_err_t mdns_service_remove(const char * service_type, const char * proto);
 /**
  * @brief  Remove service from mDNS server with hostname
  *
+ * @param  instance     instance name
  * @param  service_type service type (_http, _ftp, etc)
  * @param  proto        service protocol (_tcp, _udp)
  * @param  hostname     service hostname. If NULL, local hostname will be used.
@@ -279,7 +288,7 @@ esp_err_t mdns_service_remove(const char * service_type, const char * proto);
  *     - ESP_ERR_NOT_FOUND Service not found
  *     - ESP_ERR_NO_MEM memory error
  */
-esp_err_t mdns_service_remove_for_host(const char * service_type, const char * proto, const char *hostname);
+esp_err_t mdns_service_remove_for_host(const char *instance, const char * service_type, const char * proto, const char *hostname);
 
 /**
  * @brief  Set instance name for service
@@ -299,6 +308,7 @@ esp_err_t mdns_service_instance_name_set(const char * service_type, const char *
 /**
  * @brief  Set instance name for service with hostname
  *
+ * @param  instance_old     original instance name
  * @param  service_type     service type (_http, _ftp, etc)
  * @param  proto            service protocol (_tcp, _udp)
  * @param  hostname         service hostname. If NULL, local hostname will be used.
@@ -310,7 +320,7 @@ esp_err_t mdns_service_instance_name_set(const char * service_type, const char *
  *     - ESP_ERR_NOT_FOUND Service not found
  *     - ESP_ERR_NO_MEM memory error
  */
-esp_err_t mdns_service_instance_name_set_for_host(const char * service_type, const char * proto, const char * hostname,
+esp_err_t mdns_service_instance_name_set_for_host(const char * instance_old, const char * service_type, const char * proto, const char * hostname,
                                                   const char * instance_name);
 
 /**
@@ -332,6 +342,7 @@ esp_err_t mdns_service_port_set(const char * service_type, const char * proto, u
 /**
  * @brief  Set service port with hostname
  *
+ * @param  instance     instance name
  * @param  service_type service type (_http, _ftp, etc)
  * @param  proto        service protocol (_tcp, _udp)
  * @param  hostname     service hostname. If NULL, local hostname will be used.
@@ -343,7 +354,7 @@ esp_err_t mdns_service_port_set(const char * service_type, const char * proto, u
  *     - ESP_ERR_NOT_FOUND Service not found
  *     - ESP_ERR_NO_MEM memory error
  */
-esp_err_t mdns_service_port_set_for_host(const char * service_type, const char * proto, const char * hostname,
+esp_err_t mdns_service_port_set_for_host(const char * instance, const char * service_type, const char * proto, const char * hostname,
                                          uint16_t port);
 
 /**
@@ -369,6 +380,7 @@ esp_err_t mdns_service_txt_set(const char * service_type, const char * proto, md
  *
  * @note The value length of txt items will be automatically decided by strlen
  *
+ * @param  instance     instance name
  * @param  service_type service type (_http, _ftp, etc)
  * @param  proto        service protocol (_tcp, _udp)
  * @param  hostname     service hostname. If NULL, local hostname will be used.
@@ -381,7 +393,7 @@ esp_err_t mdns_service_txt_set(const char * service_type, const char * proto, md
  *     - ESP_ERR_NOT_FOUND Service not found
  *     - ESP_ERR_NO_MEM memory error
  */
-esp_err_t mdns_service_txt_set_for_host(const char * service_type, const char * proto, const char * hostname,
+esp_err_t mdns_service_txt_set_for_host(const char * instance, const char * service_type, const char * proto, const char * hostname,
                                         mdns_txt_item_t txt[], uint8_t num_items);
 
 /**
@@ -425,6 +437,7 @@ esp_err_t mdns_service_txt_item_set_with_explicit_value_len(const char *service_
  *
  * @note The value length will be automatically decided by strlen
  *
+ * @param  instance     instance name
  * @param  service_type service type (_http, _ftp, etc)
  * @param  proto        service protocol (_tcp, _udp)
  * @param  hostname     service hostname. If NULL, local hostname will be used.
@@ -437,12 +450,13 @@ esp_err_t mdns_service_txt_item_set_with_explicit_value_len(const char *service_
  *     - ESP_ERR_NOT_FOUND Service not found
  *     - ESP_ERR_NO_MEM memory error
  */
-esp_err_t mdns_service_txt_item_set_for_host(const char * service_type, const char * proto, const char * hostname,
+esp_err_t mdns_service_txt_item_set_for_host(const char * instance, const char * service_type, const char * proto, const char * hostname,
                                              const char * key, const char * value);
 
 /**
  * @brief  Set/Add TXT item for service TXT record with hostname and txt value length
  *
+ * @param  instance     instance name
  * @param  service_type service type (_http, _ftp, etc)
  * @param  proto        service protocol (_tcp, _udp)
  * @param  hostname     service hostname. If NULL, local hostname will be used.
@@ -456,7 +470,7 @@ esp_err_t mdns_service_txt_item_set_for_host(const char * service_type, const ch
  *     - ESP_ERR_NOT_FOUND Service not found
  *     - ESP_ERR_NO_MEM memory error
  */
-esp_err_t mdns_service_txt_item_set_for_host_with_explicit_value_len(const char *service_type, const char *proto,
+esp_err_t mdns_service_txt_item_set_for_host_with_explicit_value_len(const char * instance, const char *service_type, const char *proto,
                                                                      const char *hostname, const char *key,
                                                                      const char *value, uint8_t value_len);
 
@@ -478,6 +492,7 @@ esp_err_t mdns_service_txt_item_remove(const char * service_type, const char * p
 /**
  * @brief  Remove TXT item for service TXT record with hostname
  *
+ * @param  instance     instance name
  * @param  service_type service type (_http, _ftp, etc)
  * @param  proto        service protocol (_tcp, _udp)
  * @param  hostname     service hostname. If NULL, local hostname will be used.
@@ -489,7 +504,7 @@ esp_err_t mdns_service_txt_item_remove(const char * service_type, const char * p
  *     - ESP_ERR_NOT_FOUND Service not found
  *     - ESP_ERR_NO_MEM memory error
  */
-esp_err_t mdns_service_txt_item_remove_for_host(const char * service_type, const char * proto, const char * hostname,
+esp_err_t mdns_service_txt_item_remove_for_host(const char * instance, const char * service_type, const char * proto, const char * hostname,
                                                 const char * key);
 
 /**
@@ -539,12 +554,13 @@ esp_err_t mdns_query_async_delete(mdns_search_once_t* search);
  * @param search pointer to search object
  * @param timeout time in milliseconds to wait for answers
  * @param results pointer to the results of the query
+ * @param num_results pointer to the number of the actual result items (set to NULL to ignore this return value)
  *
  * @return
  *      True if search has finished before or at timeout
  *      False if search timeout is over
  */
-bool mdns_query_async_get_results(mdns_search_once_t* search, uint32_t timeout, mdns_result_t ** results);
+bool mdns_query_async_get_results(mdns_search_once_t* search, uint32_t timeout, mdns_result_t ** results, uint8_t * num_results);
 
 /**
  * @brief  Query mDNS for host or service asynchronousely.
@@ -565,8 +581,32 @@ mdns_search_once_t *mdns_query_async_new(const char *name, const char *service_t
                                          uint32_t timeout, size_t max_results, mdns_query_notify_t notifier);
 
 /**
- * @brief  Query mDNS for host or service
+ * @brief  Generic mDNS query
  *         All following query methods are derived from this one
+ *
+ * @param  name         service instance or host name (NULL for PTR queries)
+ * @param  service_type service type (_http, _arduino, _ftp etc.) (NULL for host queries)
+ * @param  proto        service protocol (_tcp, _udp, etc.) (NULL for host queries)
+ * @param  type         type of query (MDNS_TYPE_*)
+ * @param  transmission_type      either Unicast query, or Multicast query
+ * @param  timeout      time in milliseconds to wait for answers.
+ * @param  max_results  maximum results to be collected
+ * @param  results      pointer to the results of the query
+ *                      results must be freed using mdns_query_results_free below
+ *
+ * @return
+ *     - ESP_OK success
+ *     - ESP_ERR_INVALID_STATE  mDNS is not running
+ *     - ESP_ERR_NO_MEM         memory error
+ *     - ESP_ERR_INVALID_ARG    timeout was not given
+ */
+esp_err_t mdns_query_generic(const char * name, const char * service_type, const char * proto, uint16_t type,
+                             mdns_query_transmission_type_t transmission_type, uint32_t timeout, size_t max_results, mdns_result_t ** results);
+
+/**
+ * @brief  Query mDNS for host or service
+ *
+ * Note that querying PTR types sends Multicast query, all other types send Unicast queries
  *
  * @param  name         service instance or host name (NULL for PTR queries)
  * @param  service_type service type (_http, _arduino, _ftp etc.) (NULL for host queries)

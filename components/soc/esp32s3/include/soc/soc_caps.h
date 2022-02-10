@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,10 +9,25 @@
 // separate these information into periph_caps.h for each peripheral and
 // include them here to avoid developing conflicts.
 
+/*
+ * These defines are parsed and imported as kconfig variables via the script
+ * `tools/gen_soc_caps_kconfig/gen_soc_caps_kconfig.py`
+ *
+ * If this file is changed the script will automatically run the script
+ * and generate the kconfig variables as part of the pre-commit hooks.
+ *
+ * It can also be ran manually with `./tools/gen_soc_caps_kconfig/gen_soc_caps_kconfig.py 'components/soc/esp32s3/include/soc/'`
+ *
+ * For more information see `tools/gen_soc_caps_kconfig/README.md`
+ *
+*/
+
 #pragma once
 
 /*-------------------------- COMMON CAPS ---------------------------------------*/
+#define SOC_ADC_SUPPORTED               1
 #define SOC_PCNT_SUPPORTED              1
+#define SOC_WIFI_SUPPORTED              1
 #define SOC_TWAI_SUPPORTED              1
 #define SOC_GDMA_SUPPORTED              1
 #define SOC_LCDCAM_SUPPORTED            1
@@ -21,6 +36,7 @@
 #define SOC_CPU_CORES_NUM               2
 #define SOC_CACHE_SUPPORT_WRAP          1
 #define SOC_ULP_SUPPORTED               1
+#define SOC_RISCV_COPROC_SUPPORTED      1
 #define SOC_BT_SUPPORTED                1
 #define SOC_USB_OTG_SUPPORTED           1
 #define SOC_USB_SERIAL_JTAG_SUPPORTED   1
@@ -31,6 +47,7 @@
 #define SOC_SUPPORTS_SECURE_DL_MODE     1
 #define SOC_EFUSE_SECURE_BOOT_KEY_DIGESTS 3
 #define SOC_EFUSE_REVOKE_BOOT_KEY_DIGESTS 1
+#define SOC_EFUSE_KEY_PURPOSE_FIELD       1
 #define SOC_SDMMC_HOST_SUPPORTED          1
 #define SOC_FLASH_ENCRYPTION_XTS_AES      1
 #define SOC_RTC_FAST_MEM_SUPPORTED        1
@@ -39,6 +56,9 @@
 #define SOC_SUPPORT_SECURE_BOOT_REVOKE_KEY             1
 #define SOC_PSRAM_DMA_CAPABLE             1
 #define SOC_XT_WDT_SUPPORTED              1
+#define SOC_I2S_SUPPORTED               1
+#define SOC_RMT_SUPPORTED               1
+#define SOC_SIGMADELTA_SUPPORTED        1
 
 /*-------------------------- SOC CAPS ----------------------------------------*/
 #define SOC_APPCPU_HAS_CLOCK_GATING_BUG (1)
@@ -46,6 +66,7 @@
 /*-------------------------- ADC CAPS ----------------------------------------*/
 /*!< SAR ADC Module*/
 #define SOC_ADC_RTC_CTRL_SUPPORTED              1
+#define SOC_ADC_DIG_CTRL_SUPPORTED              1
 #define SOC_ADC_ARBITER_SUPPORTED               1
 #define SOC_ADC_FILTER_SUPPORTED                1
 #define SOC_ADC_MONITOR_SUPPORTED               1
@@ -103,7 +124,18 @@
 #define SOC_DEDIC_GPIO_OUT_AUTO_ENABLE  (1) /*!< Dedicated GPIO output attribution is enabled automatically */
 
 /*-------------------------- I2C CAPS ----------------------------------------*/
-#include "i2c_caps.h"
+// ESP32-S3 has 2 I2C
+#define SOC_I2C_NUM            (2)
+
+#define SOC_I2C_FIFO_LEN       (32) /*!< I2C hardware FIFO depth */
+
+//ESP32-S3 support hardware FSM reset
+#define SOC_I2C_SUPPORT_HW_FSM_RST  (1)
+//ESP32-S3 support hardware clear bus
+#define SOC_I2C_SUPPORT_HW_CLR_BUS  (1)
+
+#define SOC_I2C_SUPPORT_XTAL       (1)
+#define SOC_I2C_SUPPORT_RTC        (1)
 
 /*-------------------------- I2S CAPS ----------------------------------------*/
 #define SOC_I2S_NUM                 (2)
@@ -183,7 +215,6 @@
 
 /*-------------------------- SPI CAPS ----------------------------------------*/
 #define SOC_SPI_PERIPH_NUM                  3
-#define SOC_SPI_DMA_CHAN_NUM                3
 #define SOC_SPI_PERIPH_CS_NUM(i)            3
 #define SOC_SPI_MAXIMUM_BUFFER_SIZE         64
 #define SOC_SPI_SUPPORT_DDRCLK              1
@@ -196,7 +227,7 @@
 #define SOC_SPI_PERIPH_SUPPORT_MULTILINE_MODE(host_id)  ({(void)host_id; 1;})
 
 // Peripheral supports output given level during its "dummy phase"
-#define SOC_SPI_PERIPH_SUPPORT_CONTROL_DUMMY_OUTPUT 1
+#define SOC_SPI_PERIPH_SUPPORT_CONTROL_DUMMY_OUT 1
 #define SOC_MEMSPI_IS_INDEPENDENT                   1
 #define SOC_SPI_MAX_PRE_DIVIDER                     16
 #define SOC_SPI_SUPPORT_OCT                         1
@@ -219,7 +250,7 @@
 #define SOC_TIMER_GROUP_TIMERS_PER_GROUP  (2)
 #define SOC_TIMER_GROUP_COUNTER_BIT_WIDTH (54)
 #define SOC_TIMER_GROUP_SUPPORT_XTAL      (1)
-#define SOC_TIMER_GROUP_TOTAL_TIMERS (SOC_TIMER_GROUPS * SOC_TIMER_GROUP_TIMERS_PER_GROUP)
+#define SOC_TIMER_GROUP_TOTAL_TIMERS      (4)
 
 /*-------------------------- TOUCH SENSOR CAPS -------------------------------*/
 #define SOC_TOUCH_SENSOR_NUM                (15) /*! 15 Touch channels */
@@ -233,8 +264,13 @@
 #include "twai_caps.h"
 
 /*-------------------------- UART CAPS ---------------------------------------*/
-#include "uart_caps.h"
-
+// ESP32-S3 has 3 UARTs
+#define SOC_UART_NUM                (3)
+#define SOC_UART_FIFO_LEN           (128)      /*!< The UART hardware FIFO length */
+#define SOC_UART_BITRATE_MAX        (5000000)  /*!< Max bit rate supported by UART */
+// UART has an extra TX_WAIT_SEND state when the FIFO is not empty and XOFF is enabled
+#define SOC_UART_SUPPORT_FSM_TX_WAIT_SEND   (1)
+#define SOC_UART_SUPPORT_WAKEUP_INT (1)        /*!< Support UART wakeup interrupt */
 #define SOC_UART_SUPPORT_RTC_CLK    (1)     /*!< Support RTC clock as the clock source */
 #define SOC_UART_SUPPORT_XTAL_CLK   (1)     /*!< Support XTAL clock as the clock source */
 
@@ -261,7 +297,6 @@
 #define SOC_SHA_SUPPORT_SHA224          (1)
 #define SOC_SHA_SUPPORT_SHA256          (1)
 #define SOC_SHA_SUPPORT_SHA384          (1)
-#define SOC_SHA_SUPPORT_SHA256          (1)
 #define SOC_SHA_SUPPORT_SHA512          (1)
 #define SOC_SHA_SUPPORT_SHA512_224      (1)
 #define SOC_SHA_SUPPORT_SHA512_256      (1)
@@ -295,7 +330,7 @@
 
 #define SOC_PM_SUPPORT_TOUCH_SENSOR_WAKEUP    (1)     /*!<Supports waking up from touch pad trigger */
 
-#define SOC_PM_SUPPORT_DEEPSLEEP_VERIFY_STUB_ONLY   (1)
+#define SOC_PM_SUPPORT_DEEPSLEEP_CHECK_STUB_ONLY   (1)
 
 
 /*-------------------------- Flash Encryption CAPS----------------------------*/

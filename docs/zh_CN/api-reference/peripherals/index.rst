@@ -8,8 +8,8 @@
 
     adc
     :SOC_DAC_SUPPORTED: dac
-    timer
     gpio
+    gptimer
     :SOC_DEDICATED_GPIO_SUPPORTED: dedic_gpio
     :SOC_HMAC_SUPPORTED: hmac
     :SOC_DIG_SIGN_SUPPORTED: ds
@@ -19,7 +19,7 @@
     ledc
     :SOC_MCPWM_SUPPORTED: mcpwm
     :SOC_PCNT_SUPPORTED: pcnt
-    rmt
+    :SOC_RMT_SUPPORTED: rmt
     :esp32 or esp32s3: sd_pullup_requirements
     :SOC_SDMMC_HOST_SUPPORTED: sdmmc_host
     sdspi_host

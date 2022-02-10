@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,7 +8,9 @@
 #include "unity.h"
 #include "test_utils.h"
 #include "soc/soc_caps.h"
+#if SOC_SIGMADELTA_SUPPORTED
 #include "driver/sigmadelta.h"
+
 
 TEST_CASE("SigmaDelta config test", "[sigma_delta]")
 {
@@ -64,3 +66,5 @@ TEST_CASE("SigmaDelta pin, duty, prescale set", "[sigma_delta][ignore]")
     TEST_ESP_OK(sigmadelta_set_pin(sigmadelta_cfg.channel, 5));
     vTaskDelay(3000 / portTICK_PERIOD_MS);
 }
+
+#endif // SOC_SIGMADELTA_SUPPORTED

@@ -491,15 +491,21 @@ esp_err_t gpio_isr_handler_remove(gpio_num_t gpio_num)
 
 void gpio_uninstall_isr_service(void)
 {
+    gpio_isr_func_t *gpio_isr_func_free = NULL;
+    gpio_isr_handle_t gpio_isr_handle_free = NULL;
+    portENTER_CRITICAL(&gpio_context.gpio_spinlock);
     if (gpio_context.gpio_isr_func == NULL) {
+        portEXIT_CRITICAL(&gpio_context.gpio_spinlock);
         return;
     }
-    portENTER_CRITICAL(&gpio_context.gpio_spinlock);
-    esp_intr_free(gpio_context.gpio_isr_handle);
-    free(gpio_context.gpio_isr_func);
+    gpio_isr_func_free = gpio_context.gpio_isr_func;
     gpio_context.gpio_isr_func = NULL;
+    gpio_isr_handle_free = gpio_context.gpio_isr_handle;
+    gpio_context.gpio_isr_handle = NULL;
     gpio_context.isr_core_id = GPIO_ISR_CORE_ID_UNINIT;
     portEXIT_CRITICAL(&gpio_context.gpio_spinlock);
+    esp_intr_free(gpio_isr_handle_free);
+    free(gpio_isr_func_free);
     return;
 }
 
@@ -532,7 +538,12 @@ esp_err_t gpio_isr_register(void (*fn)(void *), void *arg, int intr_alloc_flags,
 #else /* CONFIG_FREERTOS_UNICORE */
     ret = esp_ipc_call_blocking(gpio_context.isr_core_id, gpio_isr_register_on_core_static, (void *)&p);
 #endif /* !CONFIG_FREERTOS_UNICORE */
-    if(ret != ESP_OK || p.ret != ESP_OK) {
+    if (ret != ESP_OK) {
+        ESP_LOGE(GPIO_TAG, "esp_ipc_call_blocking failed (0x%x)", ret);
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (p.ret != ESP_OK) {
+        ESP_LOGE(GPIO_TAG, "esp_intr_alloc failed (0x%x)", p.ret);
         return ESP_ERR_NOT_FOUND;
     }
     return ESP_OK;
@@ -551,7 +562,7 @@ esp_err_t gpio_wakeup_enable(gpio_num_t gpio_num, gpio_int_type_t intr_type)
 #endif
         portENTER_CRITICAL(&gpio_context.gpio_spinlock);
         gpio_hal_wakeup_enable(gpio_context.gpio_hal, gpio_num, intr_type);
-#if SOC_GPIO_SUPPORT_SLP_SWITCH && CONFIG_ESP32C3_LIGHTSLEEP_GPIO_RESET_WORKAROUND
+#if SOC_GPIO_SUPPORT_SLP_SWITCH && CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND
         gpio_hal_sleep_sel_dis(gpio_context.gpio_hal, gpio_num);
 #endif
         portEXIT_CRITICAL(&gpio_context.gpio_spinlock);
@@ -574,7 +585,7 @@ esp_err_t gpio_wakeup_disable(gpio_num_t gpio_num)
 #endif
     portENTER_CRITICAL(&gpio_context.gpio_spinlock);
     gpio_hal_wakeup_disable(gpio_context.gpio_hal, gpio_num);
-#if SOC_GPIO_SUPPORT_SLP_SWITCH && CONFIG_ESP32C3_LIGHTSLEEP_GPIO_RESET_WORKAROUND
+#if SOC_GPIO_SUPPORT_SLP_SWITCH && CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND
     gpio_hal_sleep_sel_en(gpio_context.gpio_hal, gpio_num);
 #endif
     portEXIT_CRITICAL(&gpio_context.gpio_spinlock);
@@ -899,7 +910,7 @@ esp_err_t gpio_deep_sleep_wakeup_enable(gpio_num_t gpio_num, gpio_int_type_t int
     }
     portENTER_CRITICAL(&gpio_context.gpio_spinlock);
     gpio_hal_deepsleep_wakeup_enable(gpio_context.gpio_hal, gpio_num, intr_type);
-#if SOC_GPIO_SUPPORT_SLP_SWITCH && CONFIG_ESP32C3_LIGHTSLEEP_GPIO_RESET_WORKAROUND
+#if SOC_GPIO_SUPPORT_SLP_SWITCH && CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND
     gpio_hal_sleep_sel_dis(gpio_context.gpio_hal, gpio_num);
 #endif
     portEXIT_CRITICAL(&gpio_context.gpio_spinlock);
@@ -914,7 +925,7 @@ esp_err_t gpio_deep_sleep_wakeup_disable(gpio_num_t gpio_num)
     }
     portENTER_CRITICAL(&gpio_context.gpio_spinlock);
     gpio_hal_deepsleep_wakeup_disable(gpio_context.gpio_hal, gpio_num);
-#if SOC_GPIO_SUPPORT_SLP_SWITCH && CONFIG_ESP32C3_LIGHTSLEEP_GPIO_RESET_WORKAROUND
+#if SOC_GPIO_SUPPORT_SLP_SWITCH && CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND
     gpio_hal_sleep_sel_en(gpio_context.gpio_hal, gpio_num);
 #endif
     portEXIT_CRITICAL(&gpio_context.gpio_spinlock);

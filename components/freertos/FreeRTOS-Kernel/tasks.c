@@ -1,4 +1,11 @@
 /*
+ * SPDX-FileCopyrightText: 2020 Amazon.com, Inc. or its affiliates
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ * SPDX-FileContributor: 2016-2022 Espressif Systems (Shanghai) CO LTD
+ */
+/*
  * FreeRTOS Kernel V10.4.3
  * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  *
@@ -5315,7 +5322,7 @@ TickType_t uxTaskResetEventItemValue( void )
 
 #if ( configUSE_MUTEXES == 1 )
 
-    void *pvTaskIncrementMutexHeldCount( void )
+    TaskHandle_t pvTaskIncrementMutexHeldCount( void )
     {
         TCB_t * curTCB;
 

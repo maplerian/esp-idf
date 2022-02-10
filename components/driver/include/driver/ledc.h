@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,7 +8,6 @@
 
 #include "esp_err.h"
 #include "esp_intr_alloc.h"
-#include "soc/soc.h"
 #include "hal/ledc_types.h"
 #include "driver/gpio.h"
 
@@ -117,6 +116,7 @@ esp_err_t ledc_timer_config(const ledc_timer_config_t* timer_conf);
  * @brief LEDC update channel parameters
  * @note  Call this function to activate the LEDC updated parameters.
  *        After ledc_set_duty, we need to call this function to update the settings.
+ *        And the new LEDC parameters don't take effect until the next PWM cycle.
  * @note  ledc_set_duty, ledc_set_duty_with_hpoint and ledc_update_duty are not thread-safe, do not call these functions to
  *        control one LEDC channel in different tasks at the same time.
  *        A thread-safe version of API is ledc_set_duty_and_update
@@ -190,7 +190,7 @@ uint32_t ledc_get_freq(ledc_mode_t speed_mode, ledc_timer_t timer_num);
  * @note  ledc_set_duty, ledc_set_duty_with_hpoint and ledc_update_duty are not thread-safe, do not call these functions to
  *        control one LEDC channel in different tasks at the same time.
  *        A thread-safe version of API is ledc_set_duty_and_update
- * @note  If a fade operation is running in progress on that channel, the driver would not allow it to be stopped.
+ * @note  For ESP32, hardware does not support any duty change while a fade operation is running in progress on that channel.
  *        Other duty operations will have to wait until the fade operation has finished.
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode.
  * @param channel LEDC channel (0 - LEDC_CHANNEL_MAX-1), select from ledc_channel_t
@@ -221,7 +221,7 @@ int ledc_get_hpoint(ledc_mode_t speed_mode, ledc_channel_t channel);
  * @note  ledc_set_duty, ledc_set_duty_with_hpoint and ledc_update_duty are not thread-safe, do not call these functions to
  *        control one LEDC channel in different tasks at the same time.
  *        A thread-safe version of API is ledc_set_duty_and_update.
- * @note  If a fade operation is running in progress on that channel, the driver would not allow it to be stopped.
+ * @note  For ESP32, hardware does not support any duty change while a fade operation is running in progress on that channel.
  *        Other duty operations will have to wait until the fade operation has finished.
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode.
  * @param channel LEDC channel (0 - LEDC_CHANNEL_MAX-1), select from ledc_channel_t
@@ -235,6 +235,9 @@ esp_err_t ledc_set_duty(ledc_mode_t speed_mode, ledc_channel_t channel, uint32_t
 
 /**
  * @brief LEDC get duty
+ *        This function returns the duty at the present PWM cycle.
+ *        You shouldn't expect the function to return the new duty in the same cycle of calling ledc_update_duty,
+ *        because duty update doesn't take effect until the next cycle.
  *
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode.
  * @param channel LEDC channel (0 - LEDC_CHANNEL_MAX-1), select from ledc_channel_t
@@ -248,7 +251,7 @@ uint32_t ledc_get_duty(ledc_mode_t speed_mode, ledc_channel_t channel);
 /**
  * @brief LEDC set gradient
  *        Set LEDC gradient, After the function calls the ledc_update_duty function, the function can take effect.
- * @note  If a fade operation is running in progress on that channel, the driver would not allow it to be stopped.
+ * @note  For ESP32, hardware does not support any duty change while a fade operation is running in progress on that channel.
  *        Other duty operations will have to wait until the fade operation has finished.
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode.
  * @param channel LEDC channel (0 - LEDC_CHANNEL_MAX-1), select from ledc_channel_t
@@ -354,7 +357,7 @@ esp_err_t ledc_bind_channel_timer(ledc_mode_t speed_mode, ledc_channel_t channel
  * @note  ledc_set_fade_with_step, ledc_set_fade_with_time and ledc_fade_start are not thread-safe, do not call these functions to
  *        control one LEDC channel in different tasks at the same time.
  *        A thread-safe version of API is ledc_set_fade_step_and_start
- * @note  If a fade operation is running in progress on that channel, the driver would not allow it to be stopped.
+ * @note  For ESP32, hardware does not support any duty change while a fade operation is running in progress on that channel.
  *        Other duty operations will have to wait until the fade operation has finished.
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode. ,
  * @param channel LEDC channel index (0 - LEDC_CHANNEL_MAX-1), select from ledc_channel_t
@@ -377,7 +380,7 @@ esp_err_t ledc_set_fade_with_step(ledc_mode_t speed_mode, ledc_channel_t channel
  * @note  ledc_set_fade_with_step, ledc_set_fade_with_time and ledc_fade_start are not thread-safe, do not call these functions to
  *        control one LEDC channel in different tasks at the same time.
  *        A thread-safe version of API is ledc_set_fade_step_and_start
- * @note  If a fade operation is running in progress on that channel, the driver would not allow it to be stopped.
+ * @note  For ESP32, hardware does not support any duty change while a fade operation is running in progress on that channel.
  *        Other duty operations will have to wait until the fade operation has finished.
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode. ,
  * @param channel LEDC channel index (0 - LEDC_CHANNEL_MAX-1), select from ledc_channel_t
@@ -413,11 +416,13 @@ void ledc_fade_func_uninstall(void);
  * @brief Start LEDC fading.
  * @note  Call ledc_fade_func_install() once before calling this function.
  *        Call this API right after ledc_set_fade_with_time or ledc_set_fade_with_step before to start fading.
- * @note  If a fade operation is running in progress on that channel, the driver would not allow it to be stopped.
+ * @note  Starting fade operation with this API is not thread-safe, use with care.
+ * @note  For ESP32, hardware does not support any duty change while a fade operation is running in progress on that channel.
  *        Other duty operations will have to wait until the fade operation has finished.
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode.
  * @param channel LEDC channel number
- * @param fade_mode Whether to block until fading done.
+ * @param fade_mode Whether to block until fading done. See ledc_types.h ledc_fade_mode_t for more info.
+ *        Note that this function will not return until fading to the target duty if LEDC_FADE_WAIT_DONE mode is selected.
  *
  * @return
  *     - ESP_OK Success
@@ -426,9 +431,26 @@ void ledc_fade_func_uninstall(void);
  */
 esp_err_t ledc_fade_start(ledc_mode_t speed_mode, ledc_channel_t channel, ledc_fade_mode_t fade_mode);
 
+#if SOC_LEDC_SUPPORT_FADE_STOP
+/**
+ * @brief Stop LEDC fading. Duty of the channel will stay at its present vlaue.
+ * @note  This API can be called if a new fixed duty or a new fade want to be set while the last fade operation is still running in progress.
+ * @note  Call this API will abort the fading operation only if it was started by calling ledc_fade_start with LEDC_FADE_NO_WAIT mode.
+ * @note  If a fade was started with LEDC_FADE_WAIT_DONE mode, calling this API afterwards is no use in stopping the fade. Fade will continue until it reachs the target duty.
+ * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode.
+ * @param channel LEDC channel number
+ *
+ * @return
+ *     - ESP_OK Success
+ *     - ESP_ERR_INVALID_STATE Fade function not installed.
+ *     - ESP_ERR_INVALID_ARG Parameter error.
+ */
+esp_err_t ledc_fade_stop(ledc_mode_t speed_mode, ledc_channel_t channel);
+#endif
+
 /**
  * @brief A thread-safe API to set duty for LEDC channel and return when duty updated.
- * @note  If a fade operation is running in progress on that channel, the driver would not allow it to be stopped.
+ * @note  For ESP32, hardware does not support any duty change while a fade operation is running in progress on that channel.
  *        Other duty operations will have to wait until the fade operation has finished.
  *
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode.
@@ -442,7 +464,7 @@ esp_err_t ledc_set_duty_and_update(ledc_mode_t speed_mode, ledc_channel_t channe
 /**
  * @brief A thread-safe API to set and start LEDC fade function, with a limited time.
  * @note  Call ledc_fade_func_install() once, before calling this function.
- * @note  If a fade operation is running in progress on that channel, the driver would not allow it to be stopped.
+ * @note  For ESP32, hardware does not support any duty change while a fade operation is running in progress on that channel.
  *        Other duty operations will have to wait until the fade operation has finished.
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode.
  * @param channel LEDC channel index (0 - LEDC_CHANNEL_MAX-1), select from ledc_channel_t
@@ -460,7 +482,7 @@ esp_err_t ledc_set_fade_time_and_start(ledc_mode_t speed_mode, ledc_channel_t ch
 /**
  * @brief A thread-safe API to set and start LEDC fade function.
  * @note  Call ledc_fade_func_install() once before calling this function.
- * @note  If a fade operation is running in progress on that channel, the driver would not allow it to be stopped.
+ * @note  For ESP32, hardware does not support any duty change while a fade operation is running in progress on that channel.
  *        Other duty operations will have to wait until the fade operation has finished.
  * @param speed_mode Select the LEDC channel group with specified speed mode. Note that not all targets support high speed mode.
  * @param channel LEDC channel index (0 - LEDC_CHANNEL_MAX-1), select from ledc_channel_t
@@ -475,9 +497,6 @@ esp_err_t ledc_set_fade_time_and_start(ledc_mode_t speed_mode, ledc_channel_t ch
  *     - ESP_FAIL Fade function init error
  */
 esp_err_t ledc_set_fade_step_and_start(ledc_mode_t speed_mode, ledc_channel_t channel, uint32_t target_duty, uint32_t scale, uint32_t cycle_num, ledc_fade_mode_t fade_mode);
-#ifdef __cplusplus
-}
-#endif
 
 /**
  * @brief LEDC callback registration function
@@ -493,3 +512,6 @@ esp_err_t ledc_set_fade_step_and_start(ledc_mode_t speed_mode, ledc_channel_t ch
  *     - ESP_FAIL Fade function init error
  */
 esp_err_t ledc_cb_register(ledc_mode_t speed_mode, ledc_channel_t channel, ledc_cbs_t *cbs, void *user_arg);
+#ifdef __cplusplus
+}
+#endif

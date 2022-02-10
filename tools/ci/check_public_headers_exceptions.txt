@@ -34,6 +34,7 @@ components/spi_flash/include/spi_flash_chip_mxic.h
 components/spi_flash/include/spi_flash_chip_gd.h
 components/spi_flash/include/spi_flash_chip_winbond.h
 components/spi_flash/include/spi_flash_chip_boya.h
+components/spi_flash/include/spi_flash_chip_th.h
 components/spi_flash/include/memspi_host_driver.h
 components/spi_flash/include/spi_flash_chip_driver.h
 components/spi_flash/include/spi_flash_chip_generic.h
@@ -46,9 +47,9 @@ components/wpa_supplicant/esp_supplicant/include/
 
 components/mbedtls/port/include/
 components/mbedtls/mbedtls/include/mbedtls/
+components/mbedtls/mbedtls/include/psa/
 
 components/coap/
-components/nghttp/
 
 components/esp-tls/private_include/
 
@@ -58,8 +59,6 @@ components/mdns/include/mdns_console.h
 
 components/esp_serial_slave_link/include/esp_serial_slave_link/essl.h
 components/esp_serial_slave_link/include/esp_serial_slave_link/essl_sdio.h
-
-components/expat/
 
 components/fatfs/vfs/vfs_fat_internal.h
 components/fatfs/src/ffconf.h
@@ -87,6 +86,9 @@ components/openthread/openthread/
 components/app_trace/include/esp_sysview_trace.h
 components/esp_gdbstub/include/esp_gdbstub.h
 components/openssl/include/platform/ssl_pm.h
+
+components/esp_hw_support/include/esp_memprot.h
+components/esp_hw_support/include/esp_private/esp_memprot_internal.h
 
 ### Here are the files that use CONFIG_XXX values but don't include sdkconfig.h
 #

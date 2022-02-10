@@ -257,17 +257,23 @@ static bool bss_profile_match(u8 *sender)
 }
 #endif
 
-void esp_supplicant_common_init(struct wpa_funcs *wpa_cb)
+int esp_supplicant_common_init(struct wpa_funcs *wpa_cb)
 {
 	struct wpa_supplicant *wpa_s = &g_wpa_supp;
+	int ret;
 
 	s_supplicant_evt_queue = xQueueCreate(3, sizeof(supplicant_event_t));
-	xTaskCreate(btm_rrm_task, "btm_rrm_t", SUPPLICANT_TASK_STACK_SIZE, NULL, 2, s_supplicant_task_hdl);
+	ret = xTaskCreate(btm_rrm_task, "btm_rrm_t", SUPPLICANT_TASK_STACK_SIZE, NULL, 2, s_supplicant_task_hdl);
+	if (ret != pdPASS) {
+		wpa_printf(MSG_ERROR, "btm: failed to create task");
+		return ret;
+	}
 
 	s_supplicant_api_lock = xSemaphoreCreateRecursiveMutex();
 	if (!s_supplicant_api_lock) {
-		wpa_printf(MSG_ERROR, "esp_supplicant_common_init: failed to create Supplicant API lock");
-		return;
+		esp_supplicant_common_deinit();
+		wpa_printf(MSG_ERROR, "%s: failed to create Supplicant API lock", __func__);
+		return ret;
 	}
 
 	esp_scan_init(wpa_s);
@@ -291,15 +297,13 @@ void esp_supplicant_common_init(struct wpa_funcs *wpa_cb)
 #else
 	wpa_cb->wpa_sta_profile_match = NULL;
 #endif
+	return 0;
 }
 
 void esp_supplicant_common_deinit(void)
 {
 	struct wpa_supplicant *wpa_s = &g_wpa_supp;
 
-	if (esp_supplicant_post_evt(SIG_SUPPLICANT_DEL_TASK, 0) != 0) {
-		wpa_printf(MSG_ERROR, "failed to send task delete event");
-	}
 	esp_scan_deinit(wpa_s);
 	wpas_rrm_reset(wpa_s);
 	wpas_clear_beacon_rep_data(wpa_s);
@@ -307,6 +311,12 @@ void esp_supplicant_common_deinit(void)
 			&supplicant_sta_conn_handler);
 	esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED,
 			&supplicant_sta_disconn_handler);
+	wpa_s->type = 0;
+	wpa_s->subtype = 0;
+	esp_wifi_register_mgmt_frame_internal(wpa_s->type, wpa_s->subtype);
+	if (esp_supplicant_post_evt(SIG_SUPPLICANT_DEL_TASK, 0) != 0) {
+		wpa_printf(MSG_ERROR, "failed to send task delete event");
+	}
 }
 
 int esp_rrm_send_neighbor_rep_request(neighbor_rep_request_cb cb,
@@ -580,12 +590,19 @@ int esp_supplicant_post_evt(uint32_t evt_id, uint32_t data)
 	evt->id = evt_id;
 	evt->data = data;
 
-	SUPPLICANT_API_LOCK();
+	/* Make sure lock exists before taking it */
+	if (s_supplicant_api_lock) {
+		SUPPLICANT_API_LOCK();
+	} else {
+		return -1;
+	}
 	if (xQueueSend(s_supplicant_evt_queue, &evt, 10 / portTICK_PERIOD_MS ) != pdPASS) {
 		SUPPLICANT_API_UNLOCK();
 		os_free(evt);
 		return -1;
 	}
-	SUPPLICANT_API_UNLOCK();
+	if (evt_id != SIG_SUPPLICANT_DEL_TASK) {
+	    SUPPLICANT_API_UNLOCK();
+	}
 	return 0;
 }

@@ -1,4 +1,11 @@
 /*
+ * SPDX-FileCopyrightText: 2020 Amazon.com, Inc. or its affiliates
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ * SPDX-FileContributor: 2016-2022 Espressif Systems (Shanghai) CO LTD
+ */
+/*
  * FreeRTOS Kernel V10.4.3
  * Copyright (C) 2019 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  *
@@ -37,26 +44,20 @@
 #include <stdio.h>
 #include "soc/spinlock.h"
 #include "soc/interrupt_core0_reg.h"
-#include "soc/cpu.h"
+#include "esp_macro.h"
 #include "esp_attr.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"              /* required for FreeRTOS run time stats */
 #include "esp_heap_caps.h"
 #include "esp_system.h"             /* required by esp_get_...() functions in portable.h. [refactor-todo] Update portable.h */
 #include "esp_newlib.h"
-#include "portbenchmark.h"
 
 /* [refactor-todo] These includes are not directly used in this file. They are kept into to prevent a breaking change. Remove these. */
 #include <limits.h>
-#ifdef CONFIG_LEGACY_INCLUDE_COMMON_HEADERS
-#include "soc/soc_memory_layout.h"
-#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-
 
 /* --------------------------------------------------- Port Types ------------------------------------------------------
  * - Port specific types.
@@ -314,7 +315,7 @@ void vPortSetStackWatchpoint(void *pxStackStart);
  */
 static inline BaseType_t IRAM_ATTR xPortGetCoreID(void)
 {
-    return (uint32_t) cpu_hal_get_core_id();
+    return (BaseType_t) cpu_hal_get_core_id();
 }
 
 
@@ -381,7 +382,24 @@ static inline BaseType_t IRAM_ATTR xPortGetCoreID(void)
 // ---------------------- Yielding -------------------------
 
 #define portYIELD() vPortYield()
-#define portYIELD_FROM_ISR() vPortYieldFromISR()
+#define portYIELD_FROM_ISR_NO_ARG() vPortYieldFromISR()
+#define portYIELD_FROM_ISR_ARG(xHigherPriorityTaskWoken) ({ \
+    if (xHigherPriorityTaskWoken == pdTRUE) { \
+        vPortYieldFromISR(); \
+    } \
+})
+/**
+ * @note    The macro below could be used when passing a single argument, or without any argument,
+ *          it was developed to support both usages of portYIELD inside of an ISR. Any other usage form
+ *          might result in undesired behavior
+ */
+#if defined(__cplusplus) && (__cplusplus >  201703L)
+#define portYIELD_FROM_ISR(...) CHOOSE_MACRO_VA_ARG(_0 __VA_OPT__(,) ##__VA_ARGS__, portYIELD_FROM_ISR_ARG, portYIELD_FROM_ISR_NO_ARG)(__VA_ARGS__)
+#else
+#define portYIELD_FROM_ISR(...) CHOOSE_MACRO_VA_ARG(_0, ##__VA_ARGS__, portYIELD_FROM_ISR_ARG, portYIELD_FROM_ISR_NO_ARG)(__VA_ARGS__)
+#endif
+
+
 #define portEND_SWITCHING_ISR(xSwitchRequired) if(xSwitchRequired) vPortYield()
 /* Yielding within an API call (when interrupts are off), means the yield should be delayed
    until interrupts are re-enabled.

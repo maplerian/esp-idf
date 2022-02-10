@@ -24,7 +24,7 @@ Kconfig option :ref:`CONFIG_SPI_FLASH_USE_LEGACY_IMPL` can be used to switch ``s
 
 Encrypted reads and writes use the old implementation, even if :ref:`CONFIG_SPI_FLASH_USE_LEGACY_IMPL` is not enabled. As such, encrypted flash operations are only supported with the main flash chip (and not with other flash chips, that is on SPI1 with different CS, or on other SPI buses). Reading through cache is only supported on the main flash, which is determined by the HW.
 
-Support for features of flash chips
+Support for Features of Flash Chips
 -----------------------------------
 
 Flash features of different vendors are operated in different ways and need special support. The fast/slow read and Dual mode (DOUT/DIO) of almost all 24-bits address flash chips are supported, because they don't need any vendor-specific commands.
@@ -59,7 +59,7 @@ Users can also customize their own flash chip driver, see :doc:`spi_flash_overri
 
    Custom Flash Driver <spi_flash_override_driver>
 
-Initializing a flash device
+Initializing a Flash Device
 ---------------------------
 
 To use ``esp_flash_*`` APIs, you need to have a chip initialized on a certain SPI bus.
@@ -72,7 +72,7 @@ To use ``esp_flash_*`` APIs, you need to have a chip initialized on a certain SP
 
 .. note:: Multiple flash chips can be attached to the same bus now. However, using ``esp_flash_*`` devices and ``spi_device_*`` devices on the same SPI bus is not supported yet.
 
-SPI flash access API
+SPI Flash Access API
 --------------------
 
 This is the set of API functions for working with data in flash:
@@ -108,7 +108,7 @@ Concurrency Constraints for flash on SPI1
 
 .. _flash-partition-apis:
 
-Partition table API
+Partition Table API
 -------------------
 
 ESP-IDF projects use a partition table to maintain information about various regions of SPI flash memory (bootloader, various application binaries, data, filesystems). More information on partition tables can be found :doc:`here </api-guides/partition-tables>`.
@@ -133,7 +133,7 @@ It is possible to encrypt the contents of SPI flash and have it transparently de
 
 Refer to the :doc:`Flash Encryption documentation </security/flash-encryption>` for more details.
 
-Memory mapping API
+Memory Mapping API
 ------------------
 
 {IDF_TARGET_CACHE_SIZE:default="64 KB"}
@@ -180,7 +180,7 @@ In other files of the SPI HAL, some of these functions are implemented with exis
 
 You can also implement your own host driver, even with the GPIO. As long as all the functions in the ``spi_flash_host_driver_t`` are implemented, the esp_flash API can access to the flash regardless of the low-level hardware.
 
-Chip driver
+Chip Driver
 ^^^^^^^^^^^
 
 The chip driver, defined in ``spi_flash_chip_driver.h``, wraps basic functions provided by the host driver for the API layer to use.
@@ -193,7 +193,7 @@ The chip driver relies on the host driver.
 
 .. _esp_flash_os_func:
 
-OS functions
+OS Functions
 ^^^^^^^^^^^^
 
 Currently the OS function layer provides entries of a lock and delay.
@@ -210,8 +210,20 @@ The delay is used by some long operations which requires the master to wait or p
 
 The top API wraps these the chip driver and OS functions into an entire component, and also provides some argument checking.
 
+OS functions can also help to avoid a watchdog timeout when erasing large flash areas. During this time, the CPU is occupied with the flash erasing task. This stops other tasks from being executed. Among these tasks is the idle task to feed the watchdog timer (WDT). If the configuration option :ref:`CONFIG_ESP_TASK_WDT_PANIC` is selected and the flash operation time is longer than the watchdog timeout period, the system will reboot. 
 
-See also
+It's pretty hard to totally eliminate this risk, because the erasing time varies with different flash chips, making it hard to be compatible in flash drivers. Therefore, users need to pay attention to it. Please use the following guidelines:
+
+1. It is recommended to enable the :ref:`CONFIG_SPI_FLASH_YIELD_DURING_ERASE` option to allow the scheduler to re-schedule during erasing flash memory. Besides, following parameters can also be used.
+
+- Increase :ref:`CONFIG_SPI_FLASH_ERASE_YIELD_TICKS` or decrease :ref:`CONFIG_SPI_FLASH_ERASE_YIELD_DURATION_MS` in menuconfig.
+- You can also increase :ref:`CONFIG_ESP_TASK_WDT_TIMEOUT_S` in menuconfig for a larger watchdog timeout period. However, with larger watchdog timeout period, previously detected timeouts may no longer be detected.
+
+2. Please be aware of the consequences of enabling the :ref:`CONFIG_ESP_TASK_WDT_PANIC` option when doing long-running SPI flash operations which will trigger the panic handler when it times out. However, this option can also help dealing with unexpected exceptions in your application. Please decide whether this is needed to be enabled according to actual condition.
+
+3. During your development, please carefully review the actual flash operation according to the specific requirements and time limits on erasing flash memory of your projects. Always allow reasonable redundancy based on your specific product requirements when configuring the flash erasing timeout threshold, thus improving the reliability of your product.
+
+See Also
 --------
 
 - :doc:`Partition Table documentation <../../api-guides/partition-tables>`
@@ -221,7 +233,7 @@ See also
 
 .. _spi-flash-implementation-details:
 
-Implementation details
+Implementation Details
 ----------------------
 
 In order to perform some flash operations, it is necessary to make sure that both CPUs are not running any code from flash for the duration of the flash operation:

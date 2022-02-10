@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -27,23 +27,19 @@
 #include "esp32/rom/spi_flash.h"
 #elif CONFIG_IDF_TARGET_ESP32S2
 #include "esp32s2/rom/cache.h"
-#include "esp32s2/rom/spi_flash.h"
 #elif CONFIG_IDF_TARGET_ESP32S3
 #include "soc/spi_mem_reg.h"
-#include "esp32s3/rom/spi_flash.h"
 #include "esp32s3/rom/opi_flash.h"
 #include "esp32s3/rom/cache.h"
 #include "esp32s3/opi_flash_private.h"
 #elif CONFIG_IDF_TARGET_ESP32C3
 #include "esp32c3/rom/cache.h"
-#include "esp32c3/rom/spi_flash.h"
 #elif CONFIG_IDF_TARGET_ESP32H2
 #include "esp32h2/rom/cache.h"
-#include "esp32h2/rom/spi_flash.h"
-#elif CONFIG_IDF_TARGET_ESP8684
-#include "esp8684/rom/cache.h"
-#include "esp8684/rom/spi_flash.h"
+#elif CONFIG_IDF_TARGET_ESP32C2
+#include "esp32c2/rom/cache.h"
 #endif
+#include "esp_rom_spiflash.h"
 #include "esp_flash_partitions.h"
 #include "cache_utils.h"
 #include "esp_flash.h"
@@ -130,7 +126,8 @@ const DRAM_ATTR spi_flash_guard_funcs_t g_flash_guard_no_os_ops = {
    bootloader, partition table, or running application region.
 */
 #if CONFIG_SPI_FLASH_DANGEROUS_WRITE_ALLOWED
-#define CHECK_WRITE_ADDRESS(ADDR, SIZE)
+// Following helps in masking "unused variable" warning
+#define CHECK_WRITE_ADDRESS(ADDR, SIZE) ({(void) guard;})
 #else /* FAILS or ABORTS */
 #define CHECK_WRITE_ADDRESS(ADDR, SIZE) do {                            \
         if (guard && guard->is_safe_write_address && !guard->is_safe_write_address(ADDR, SIZE)) {                       \
